@@ -4,16 +4,27 @@ use crate::domain::{Request, SourceKind, Mapping, Identifier, DataCategory, Exec
 use super::ports::{Planner, Plan, PlanStep, RequestContext, MappingResolver, FilterParser, Command};
 use super::strategy::StrategySelector;
 use super::quote_index::QuoteIndexGenerator;
+use crate::infrastructure::mssql::query_builder::{CMDPQueryBuilder, HyperscaleQueryBuilder};
+use crate::infrastructure::cassandra::query_builder::CassandraQueryBuilder;
 use anyhow::Result;
 
 pub struct DefaultPlanner {
     resolver: Arc<dyn MappingResolver>,
     parser: Arc<dyn FilterParser>,
+    cmdp_builder: CMDPQueryBuilder,
+    hyperscale_builder: HyperscaleQueryBuilder,
+    cassandra_builder: CassandraQueryBuilder,
 }
 
 impl DefaultPlanner {
-    pub fn new(resolver: Arc<dyn MappingResolver>, parser: Arc<dyn FilterParser>) -> Self {
-        Self { resolver, parser }
+    pub fn new(resolver: Arc<dyn MappingResolver>, parser: Arc<dyn FilterParser>, cassandra_builder: CassandraQueryBuilder) -> Self {
+        Self { 
+            resolver, 
+            parser,
+            cmdp_builder: CMDPQueryBuilder::new(),
+            hyperscale_builder: HyperscaleQueryBuilder::new(),
+            cassandra_builder,
+        }
     }
 
     async fn split_hybrid_command(&self, _ctx: &RequestContext, command: Command) -> Result<Vec<Command>> {
@@ -57,19 +68,6 @@ impl DefaultPlanner {
             mapping.source = source;
         }
         command
-    }
-
-    fn build_query(&self, command: &Command, mapping: &Mapping) -> ExecutableQuery {
-        ExecutableQuery {
-            id: mapping.id,
-            data_category: command.data_category,
-            source: command.source,
-            filters: command.filters.clone(),
-            index_range: None,
-            statement: "SELECT ...".to_string(), // In real app, this would be built by a QueryBuilder
-            parameters: Default::default(),
-            arguments: vec![],
-        }
     }
 }
 
@@ -120,11 +118,19 @@ impl Planner for DefaultPlanner {
 
                 let hybrid_commands = self.split_hybrid_command(&ctx, command).await?;
                 for h_command in hybrid_commands {
-                    let query = self.build_query(&h_command, &mapping);
-                    steps.push(PlanStep {
-                        command: h_command,
-                        query,
-                    });
+                    let queries = match h_command.source {
+                        SourceKind::Cmdp => self.cmdp_builder.build_queries(&h_command)?,
+                        SourceKind::Hyperscale => self.hyperscale_builder.build_queries(&h_command)?,
+                        SourceKind::Cassandra => self.cassandra_builder.build_queries(&h_command)?,
+                        SourceKind::Mesap => vec![], // Mesap stub
+                    };
+
+                    for query in queries {
+                        steps.push(PlanStep {
+                            command: h_command.clone(),
+                            query,
+                        });
+                    }
                 }
             }
         }

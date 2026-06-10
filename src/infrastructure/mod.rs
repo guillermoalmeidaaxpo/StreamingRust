@@ -5,3 +5,4 @@ pub mod mssql;
 pub mod cassandra;
 pub mod auth;
 pub mod config;
+pub mod throttling;

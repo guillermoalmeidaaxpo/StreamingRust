@@ -7,9 +7,11 @@ use std::sync::Arc;
 use crate::application::pipeline::Pipeline;
 use super::handlers;
 use crate::infrastructure::auth::middleware::auth_middleware;
+use crate::infrastructure::config::AuthConfig;
 
 pub struct AppState {
     pub pipeline: Arc<Pipeline>,
+    pub auth_config: AuthConfig,
 }
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -23,7 +25,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/surfaces", post(handlers::transactional))
         .route("/generic", post(handlers::generic_csv))
         .route("/lite", get(handlers::lite_csv))
-        .layer(middleware::from_fn(auth_middleware))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .with_state(state.clone());
 
     Router::new()

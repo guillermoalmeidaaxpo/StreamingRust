@@ -7,7 +7,7 @@ pub mod query;
 pub mod timeexpr;
 
 pub use identifier::Identifier;
-pub use source::{SourceKind, DataCategory, Mapping};
+pub use source::{SourceKind, DataCategory, Mapping, MappingViews, ColumnMapping};
 pub use data::{DataItem, DataValue};
 pub use filters::{FilterNode, FilterSet};
 pub use request::{Request, Transformations, Filters};
