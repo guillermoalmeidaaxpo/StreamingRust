@@ -575,7 +575,7 @@ antlr4rust::tid!{KeyComparisonContextAll<'a>}
 
 impl<'input> antlr4rust::parser_rule_context::DerefSeal for KeyComparisonContextAll<'input>{}
 
-impl<'input> OutboundAPIParserParserContext<'input> for KeyComparisonContextAll<'input>{}
+impl<'input> OutboundAPIParserContext<'input> for KeyComparisonContextAll<'input>{}
 
 impl<'input> Deref for KeyComparisonContextAll<'input>{
 	type Target = dyn KeyComparisonContextAttrs<'input> + 'input;

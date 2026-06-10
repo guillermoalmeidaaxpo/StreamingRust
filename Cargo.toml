@@ -43,11 +43,11 @@ validator = { version = "0.18", features = ["derive"] }
 regex = "1.10"
 
 # Parsing (ANTLR)
-antlr-rust = "0.3.0-beta"
+antlr4rust = "0.5.2"
 tokio-util = { version = "0.7.18", features = ["compat"] }
 
 [build-dependencies]
-antlr-rust = "0.3.0-beta"
+antlr4rust = "0.5.2"
 
 
 

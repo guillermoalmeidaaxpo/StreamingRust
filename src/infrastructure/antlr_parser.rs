@@ -23,21 +23,26 @@ impl AntlrFilterParser {
 impl FilterParser for AntlrFilterParser {
     async fn parse(&self, expressions: &[String], time_zone: &Option<String>) -> Result<FilterSet> {
         let mut all_nodes = Vec::new();
-        
+
         for expr in expressions {
             if expr.trim().is_empty() {
                 continue;
             }
-            
+
             let lexer = OutboundAPILexer::new(InputStream::new(expr.as_str()));
             let token_stream = CommonTokenStream::new(lexer);
             let mut parser = OutboundAPIParser::new(token_stream);
-            let tree = parser.expressions_section().map_err(|e| anyhow!("Parse error: {:?}", e))?;
-            
+            let tree = parser.expressionsSection().map_err(|e| anyhow!("Parse error: {:?}", e))?;
+
             let mut visitor = FilterVisitor::new(time_zone.clone());
-            let nodes = tree.accept(&mut visitor).ok_or_else(|| anyhow!("Visitor failed"))?;
-            all_nodes.extend(nodes);
-            
+            tree.accept(&mut visitor);
+
+            if !visitor.errors.is_empty() {
+                return Err(anyhow!("Filter parsing failed: {}", visitor.errors.join("; ")));
+            }
+
+            all_nodes.extend(visitor.results);
+
             tracing::info!("Parsing expression: {}", expr);
         }
 
@@ -50,6 +55,7 @@ impl FilterParser for AntlrFilterParser {
 
 pub struct FilterVisitor {
     pub time_zone: Option<String>,
+    pub results: Vec<FilterNode>,
     pub errors: Vec<String>,
 }
 
@@ -57,6 +63,7 @@ impl FilterVisitor {
     pub fn new(time_zone: Option<String>) -> Self {
         Self {
             time_zone,
+            results: Vec::new(),
             errors: Vec::new(),
         }
     }
@@ -94,76 +101,9 @@ impl FilterVisitor {
     }
 }
 
-// Example implementation of how the visitor would look with generated code
-/*
-impl<'input> OutboundAPIParserVisitor<'input> for FilterVisitor {
-    type Return = Vec<FilterNode>;
-
-    fn visit_id_point_in_time_arithmetic_comparison(&mut self, ctx: &IdPointInTimeArithmeticComparisonContext<'input>) -> Self::Return {
-        vec![FilterNode::Comparison(ComparisonFilter {
-            raw: ctx.get_text(),
-            field: ctx.ID().map(|id| id.get_text()).unwrap_or_else(|| ctx.key_surface_column().unwrap().get_text()),
-            operator: ctx.COMPARISON_OPERATOR().unwrap().get_text(),
-            value: self.visit_point_in_time_arithmetic(ctx.point_in_time_arithmetic().unwrap()),
-        })]
-    }
-
-    fn visit_id_latest_comparison(&mut self, ctx: &IdLatestComparisonContext<'input>) -> Self::Return {
-        vec![FilterNode::Comparison(ComparisonFilter {
-            raw: ctx.get_text(),
-            field: ctx.ID().unwrap().get_text(),
-            operator: ctx.COMPARISON_OPERATOR().unwrap().get_text(),
-            value: self.visit_latest_function(ctx.latest_function().unwrap()),
-        })]
-    }
-
-    fn visit_rank_over(&mut self, ctx: &RankOverContext<'input>) -> Self::Return {
-        let rank_over = ctx.rank_over_function().unwrap();
-        let mut filter = RankOverFilter {
-            raw: rank_over.get_text(),
-            partition_by: Vec::new(),
-            order_by: Vec::new(),
-            bounds: Vec::new(),
-        };
-
-        let ids: Vec<String> = rank_over.ID_all().iter().map(|id| id.get_text()).collect();
-        let sort_orders: Vec<String> = rank_over.SORT_ORDER_all().iter().map(|s| s.get_text()).collect();
-        
-        let partition_count = ids.len().saturating_sub(sort_orders.len());
-        filter.partition_by.extend(ids.iter().take(partition_count).cloned());
-        
-        for (i, order_id) in ids.iter().skip(partition_count).enumerate() {
-            let direction = sort_orders.get(i).cloned().unwrap_or_default();
-            filter.order_by.push(SortExpression {
-                field: order_id.clone(),
-                direction,
-            });
-        }
-
-        for bound_ctx in rank_over.rank_over_filter_all() {
-            filter.bounds.push(self.visit_rank_over_bound(bound_ctx));
-        }
-
-        vec![FilterNode::RankOver(filter)]
-    }
-
-    fn visit_rank_over_bound(&mut self, ctx: &RankOverFilterContext<'input>) -> RankOverBound {
-        let mut bound = RankOverBound {
-            raw: ctx.get_text(),
-            start: None,
-            end: None,
-        };
-        let integers = ctx.SIGNED_INTEGER_all();
-        if !integers.is_empty() {
-            bound.start = Some(integers[0].get_text());
-        }
-        if integers.len() > 1 {
-            bound.end = Some(integers[1].get_text());
-        }
-        if ctx.OPEN_FILTER_INTERVAL_MARKER().is_some() {
-            bound.end = Some(ctx.OPEN_FILTER_INTERVAL_MARKER().unwrap().get_text());
-        }
-        bound
-    }
+impl<'input> antlr4rust::tree::ParseTreeVisitor<'input, OutboundAPIParserContextType> for FilterVisitor {
+    fn visit_terminal(&mut self, _node: &antlr4rust::tree::TerminalNode<'input, OutboundAPIParserContextType>) {}
+    fn visit_error_node(&mut self, _node: &antlr4rust::tree::ErrorNode<'input, OutboundAPIParserContextType>) {}
 }
-*/
+
+impl<'input> OutboundAPIParserVisitor<'input> for FilterVisitor {}
