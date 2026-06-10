@@ -11,7 +11,7 @@ use super::filter_engine::FilterProvider;
 
 pub struct Pipeline {
     validator: Arc<dyn Validator>,
-    validation_resolver: RequestValidationStrategyResolver,
+    validation_resolver: Arc<RequestValidationStrategyResolver>,
     row_validator: DataRowsNumberValidator,
     planner: Arc<dyn Planner>,
     repositories: std::collections::HashMap<SourceKind, Arc<dyn Repository>>,
@@ -21,7 +21,7 @@ pub struct Pipeline {
 impl Pipeline {
     pub fn new(
         validator: Arc<dyn Validator>,
-        validation_resolver: RequestValidationStrategyResolver,
+        validation_resolver: Arc<RequestValidationStrategyResolver>,
         row_validator: DataRowsNumberValidator,
         planner: Arc<dyn Planner>,
         repositories: std::collections::HashMap<SourceKind, Arc<dyn Repository>>,

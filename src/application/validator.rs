@@ -29,8 +29,12 @@ impl RequestValidationStrategy for TransactionalDataValidationStrategy {
         matches!(category, DataCategory::Curves | DataCategory::Surfaces | DataCategory::TimeSeries)
     }
 
-    fn validate(&self, _requests: &[Request]) -> Result<()> {
-        // Contract + business validation for transactional
+    fn validate(&self, requests: &[Request]) -> Result<()> {
+        for request in requests {
+            if request.ids.is_empty() {
+                return Err(anyhow!("Request must contain at least one ID"));
+            }
+        }
         Ok(())
     }
 }

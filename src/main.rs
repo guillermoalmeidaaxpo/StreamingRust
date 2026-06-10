@@ -70,7 +70,7 @@ async fn main() {
     let strategies: Vec<Arc<dyn streaming_rust::application::ports::RequestValidationStrategy>> = vec![
         Arc::new(TransactionalDataValidationStrategy),
     ];
-    let validation_resolver = RequestValidationStrategyResolver::new(strategies);
+    let validation_resolver = Arc::new(RequestValidationStrategyResolver::new(strategies));
     let stats_service = Arc::new(MockStatsService);
     let row_validator = DataRowsNumberValidator::new(stats_service, config.execution.batch_size as u64);
 
@@ -84,7 +84,7 @@ async fn main() {
     // 4. Initialize Core Pipeline
     let pipeline = Arc::new(Pipeline::new(
         validator,
-        validation_resolver,
+        validation_resolver.clone(),
         row_validator,
         planner,
         repositories
@@ -93,6 +93,7 @@ async fn main() {
     let state = Arc::new(AppState { 
         pipeline,
         auth_config: config.auth.clone(),
+        validation_resolver,
     });
 
     // 5. Start HTTP Server
