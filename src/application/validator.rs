@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use crate::application::ports::{Validator, RequestValidationStrategy, StatisticsService};
+use crate::application::ports::{Validator, RequestValidationStrategy, StatisticsService, FilterParser};
 use crate::domain::{Request, DataCategory};
 
 pub struct RequestValidationStrategyResolver {
@@ -40,13 +40,13 @@ impl RequestValidationStrategy for TransactionalDataValidationStrategy {
 }
 
 pub struct GenericRequestValidationStrategy {
-    details_validator: GenericRequestDetailsValidator,
+    pub details_validator: GenericRequestDetailsValidator,
 }
 
 impl RequestValidationStrategy for GenericRequestValidationStrategy {
     fn can_handle(&self, category: DataCategory) -> bool {
-        // Category for generic/mesap
-        true 
+        // Handle categories that use generic logic
+        matches!(category, DataCategory::Curves | DataCategory::TimeSeries)
     }
 
     fn validate(&self, requests: &[Request]) -> Result<()> {
@@ -55,29 +55,48 @@ impl RequestValidationStrategy for GenericRequestValidationStrategy {
 }
 
 pub struct GenericRequestDetailsValidator {
-    // Depends on mapping storage, etc.
+    parser: Arc<dyn FilterParser>,
 }
 
 impl GenericRequestDetailsValidator {
-    pub fn validate_details(&self, _requests: &[Request]) -> Result<()> {
-        // Deep validation of ids, mappings, filters, projections
+    pub fn new(parser: Arc<dyn FilterParser>) -> Self {
+        Self { parser }
+    }
+
+    pub fn validate_details(&self, requests: &[Request]) -> Result<()> {
+        for req in requests {
+            // 15.1 Requirement: ParseFilters during validation time
+            if let Some(f) = &req.filters {
+                let _ = tokio::task::block_in_place(|| {
+                    futures::executor::block_on(self.parser.parse(&f.expressions, &f.filter_time_zone))
+                })?;
+            }
+        }
         Ok(())
     }
 }
 
 pub struct DataRowsNumberValidator {
     stats_service: Arc<dyn StatisticsService>,
+    parser: Arc<dyn FilterParser>,
     limit: u64,
 }
 
 impl DataRowsNumberValidator {
-    pub fn new(stats_service: Arc<dyn StatisticsService>, limit: u64) -> Self {
-        Self { stats_service, limit }
+    pub fn new(stats_service: Arc<dyn StatisticsService>, parser: Arc<dyn FilterParser>, limit: u64) -> Self {
+        Self { stats_service, parser, limit }
     }
 
     pub async fn validate_row_count(&self, requests: &[Request]) -> Result<()> {
-        for _req in requests {
-            // let estimate = self.stats_service.estimate_rows(&req.ids, &req.filters.parsed).await?;
+        for req in requests {
+            // 15.1 Requirement: ParseFilters to get row estimation
+            let parsed_filters = if let Some(f) = &req.filters {
+                self.parser.parse(&f.expressions, &f.filter_time_zone).await?
+            } else {
+                crate::domain::FilterSet { expressions: vec![], nodes: vec![] }
+            };
+
+            let _estimate = self.stats_service.estimate_rows(&req.ids, &parsed_filters).await?;
             // if estimate > self.limit { return Err(anyhow!("Request size limit exceeded")); }
         }
         Ok(())

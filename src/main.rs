@@ -69,10 +69,13 @@ async fn main() {
     let validator = Arc::new(RequestValidator::new());
     let strategies: Vec<Arc<dyn streaming_rust::application::ports::RequestValidationStrategy>> = vec![
         Arc::new(TransactionalDataValidationStrategy),
+        Arc::new(streaming_rust::application::validator::GenericRequestValidationStrategy {
+            details_validator: streaming_rust::application::validator::GenericRequestDetailsValidator::new(parser.clone()),
+        }),
     ];
     let validation_resolver = Arc::new(RequestValidationStrategyResolver::new(strategies));
     let stats_service = Arc::new(MockStatsService);
-    let row_validator = DataRowsNumberValidator::new(stats_service, config.execution.batch_size as u64);
+    let row_validator = DataRowsNumberValidator::new(stats_service, parser.clone(), config.execution.batch_size as u64);
 
     // 3. Initialize Planner
     let cassandra_builder = streaming_rust::infrastructure::cassandra::query_builder::CassandraQueryBuilder::new(
