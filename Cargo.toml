@@ -44,6 +44,7 @@ regex = "1.10"
 
 # Parsing (ANTLR)
 antlr-rust = "0.3.0-beta"
+tokio-util = { version = "0.7.18", features = ["compat"] }
 
 [build-dependencies]
 antlr-rust = "0.3.0-beta"

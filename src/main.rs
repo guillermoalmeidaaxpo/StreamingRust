@@ -55,7 +55,7 @@ async fn main() {
 
     // 1. Initialize Adapters
     let parser = Arc::new(AntlrFilterParser::new());
-    let resolver = Arc::new(MssqlMappingResolver::new(&config.datastores.mapping_sql).await.expect("Failed to initialize mapping resolver"));
+    let resolver = Arc::new(MssqlMappingResolver::new(&config.datastores.mapping_sql, &config.datastores.mds_sql).await.expect("Failed to initialize mapping resolver"));
     
     let cmdp_repo = Arc::new(MssqlRepository::new(&config.datastores.cmdp_sql, gate).await.expect("Failed to initialize MSSQL repository"));
     let scylla_repo = Arc::new(ScyllaRepository::new(&config.datastores.cassandra.hosts, &config.datastores.cassandra.keyspace).await.expect("Failed to initialize Scylla repository"));
