@@ -1,0 +1,53 @@
+[package]
+name = "streaming-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+futures = "0.3"
+
+# Web framework
+axum = { version = "0.7.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database & Infrastructure
+tiberius = { version = "0.12", features = ["tds73", "chrono"] }
+scylla = "0.13"
+fred = { version = "9.0", features = ["serde-json", "rustls"] }
+bb8 = "0.8"
+bb8-tiberius = "0.15"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.9"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+async-stream = "0.3"
+jsonschema = "0.19"
+jsonwebtoken = "9.3"
+openidconnect = "3.5"
+config = "0.14"
+serde_yaml = "0.9"
+validator = { version = "0.18", features = ["derive"] }
+regex = "1.10"
+
+# Parsing (ANTLR)
+antlr-rust = "0.3.0-beta"
+
+[build-dependencies]
+antlr-rust = "0.3.0-beta"
+
+
+
+
