@@ -50,16 +50,20 @@ pub async fn transactional(
     uri: Uri,
     Json(payload): Json<Vec<Request>>,
 ) -> impl IntoResponse {
-    tracing::info!("Request received - Endpoint: POST {}, Payload: {:?}", uri.path(), payload);
+    let start_time = std::time::Instant::now();
+    let path = uri.path().to_string();
+    tracing::info!("Starting request - Endpoint: POST {}, Payload: {:?}", path, payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
-    match state.pipeline.execute(ctx, payload).await {
+    let response = match state.pipeline.execute(ctx, payload).await {
         Ok(data) => (StatusCode::OK, Json(data)).into_response(),
         Err(err) => {
-            tracing::error!("Error in transactional endpoint ({}): {:?}", uri.path(), err);
+            tracing::error!("Error in transactional endpoint ({}): {:?}", path, err);
             (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         }
-    }
+    };
+    tracing::info!("Finished request - Endpoint: POST {}, Duration: {:?}", path, start_time.elapsed());
+    response
 }
 
 pub async fn transactional_stream(
@@ -67,22 +71,28 @@ pub async fn transactional_stream(
     uri: Uri,
     Json(payload): Json<Vec<Request>>,
 ) -> impl IntoResponse {
-    tracing::info!("Request received - Endpoint: POST {}, Payload: {:?}", uri.path(), payload);
+    let start_time = std::time::Instant::now();
+    let path = uri.path().to_string();
+    tracing::info!("Starting request - Endpoint: POST {}, Payload: {:?}", path, payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     match state.pipeline.stream(ctx, payload).await {
         Ok(stream) => {
+            let path_clone = path.clone();
             let ndjson_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;
+                let mut count = 0;
                 while let Some(item_result) = stream.next().await {
                     let item = item_result.map_err(|e| {
-                        tracing::error!("Error in transactional_stream pipeline ({}): {:?}", uri.path(), e);
+                        tracing::error!("Error in transactional_stream pipeline ({}): {:?}", path_clone, e);
                         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                     })?;
                     let mut line = serde_json::to_string(&item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
                     line.push('\n');
                     yield line;
+                    count += 1;
                 }
+                tracing::info!("Finished streaming response - Endpoint: POST {}, Items sent: {}, Duration: {:?}", path_clone, count, start_time.elapsed());
             });
 
             Response::builder()
@@ -92,7 +102,7 @@ pub async fn transactional_stream(
                 .unwrap()
         }
         Err(err) => {
-            tracing::error!("Error in transactional_stream endpoint ({}): {:?}", uri.path(), err);
+            tracing::error!("Error in transactional_stream endpoint ({}): {:?}", path, err);
             (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         }
     }
@@ -103,12 +113,14 @@ pub async fn generic_csv(
     uri: Uri,
     Json(payload): Json<crate::domain::request::GenericRequest>,
 ) -> impl IntoResponse {
-    tracing::info!("Request received - Endpoint: POST {}, Payload: {:?}", uri.path(), payload);
+    let start_time = std::time::Instant::now();
+    let path = uri.path().to_string();
+    tracing::info!("Starting request - Endpoint: POST {}, Payload: {:?}", path, payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     let request = payload.into_request();
 
-    match state.pipeline.execute(ctx, vec![request]).await {
+    let response = match state.pipeline.execute(ctx, vec![request]).await {
         Ok(items) => {
             let mut csv_output = String::new();
             let mut header_sent = false;
@@ -147,10 +159,12 @@ pub async fn generic_csv(
                 .unwrap()
         }
         Err(err) => {
-            tracing::error!("Error in generic_csv endpoint ({}): {:?}", uri.path(), err);
+            tracing::error!("Error in generic_csv endpoint ({}): {:?}", path, err);
             (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         }
-    }
+    };
+    tracing::info!("Finished request - Endpoint: POST {}, Duration: {:?}", path, start_time.elapsed());
+    response
 }
 
 pub async fn generic_csv_stream(
@@ -158,20 +172,24 @@ pub async fn generic_csv_stream(
     uri: Uri,
     Json(payload): Json<crate::domain::request::GenericRequest>,
 ) -> impl IntoResponse {
-    tracing::info!("Request received - Endpoint: POST {}, Payload: {:?}", uri.path(), payload);
+    let start_time = std::time::Instant::now();
+    let path = uri.path().to_string();
+    tracing::info!("Starting request - Endpoint: POST {}, Payload: {:?}", path, payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     let request = payload.into_request();
 
     match state.pipeline.stream(ctx, vec![request]).await {
         Ok(stream) => {
+            let path_clone = path.clone();
             let csv_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;
                 let mut header_sent = false;
+                let mut count = 0;
 
                 while let Some(item_result) = stream.next().await {
                     let item = item_result.map_err(|e| {
-                        tracing::error!("Error in generic_csv_stream pipeline ({}): {:?}", uri.path(), e);
+                        tracing::error!("Error in generic_csv_stream pipeline ({}): {:?}", path_clone, e);
                         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                     })?;
                     
@@ -198,7 +216,9 @@ pub async fn generic_csv_stream(
                     }
                     line.push('\n');
                     yield line;
+                    count += 1;
                 }
+                tracing::info!("Finished streaming response - Endpoint: POST {}, Items sent: {}, Duration: {:?}", path_clone, count, start_time.elapsed());
             });
 
             Response::builder()
@@ -209,7 +229,7 @@ pub async fn generic_csv_stream(
                 .unwrap()
         }
         Err(err) => {
-            tracing::error!("Error in generic_csv_stream endpoint ({}): {:?}", uri.path(), err);
+            tracing::error!("Error in generic_csv_stream endpoint ({}): {:?}", path, err);
             (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         }
     }
