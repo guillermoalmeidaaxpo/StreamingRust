@@ -98,7 +98,12 @@ async fn main() {
 
     // 1. Initialize Adapters
     let parser = Arc::new(AntlrFilterParser::new());
-    let resolver = Arc::new(MssqlMappingResolver::new(&config.datastores.mapping_sql.dsn, &config.datastores.mds_sql.dsn, config.execution.max_sql_connections).await.expect("Failed to initialize mapping resolver"));
+    let resolver = Arc::new(MssqlMappingResolver::new(
+        &config.datastores.mapping_sql.dsn,
+        &config.datastores.mds_sql.dsn,
+        &config.datastores.cmdp_sql.dsn,
+        config.execution.max_sql_connections,
+    ).await.expect("Failed to initialize mapping resolver"));
     
     let cmdp_repo = Arc::new(MssqlRepository::new(&config.datastores.cmdp_sql.dsn, config.execution.max_sql_connections, gate).await.expect("Failed to initialize MSSQL repository"));
     

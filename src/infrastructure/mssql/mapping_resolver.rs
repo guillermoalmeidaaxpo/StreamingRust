@@ -11,19 +11,25 @@ use std::collections::HashMap;
 use std::time::{Instant, Duration};
 
 pub struct MssqlMappingResolver {
-    cmdp_pool: Pool<ConnectionManager>,
+    mapping_pool: Pool<ConnectionManager>,
     mds_pool: Pool<ConnectionManager>,
+    cmdp_pool: Pool<ConnectionManager>,
     limits_cache: Mutex<HashMap<(i64, DataCategory), (Instant, crate::application::quote_index::FilterLimits)>>,
     before_cache: Mutex<HashMap<(i64, i64, String), (Instant, DateTime<Utc>)>>,
 }
 
 impl MssqlMappingResolver {
-    pub async fn new(cmdp_connection_string: &str, mds_connection_string: &str, max_connections: u32) -> Result<Self> {
-        let cmdp_config = super::get_mssql_config(cmdp_connection_string).await?;
-        let cmdp_manager = ConnectionManager::new(cmdp_config);
-        let cmdp_pool = Pool::builder()
+    pub async fn new(
+        mapping_connection_string: &str,
+        mds_connection_string: &str,
+        cmdp_connection_string: &str,
+        max_connections: u32,
+    ) -> Result<Self> {
+        let mapping_config = super::get_mssql_config(mapping_connection_string).await?;
+        let mapping_manager = ConnectionManager::new(mapping_config);
+        let mapping_pool = Pool::builder()
             .max_size(max_connections)
-            .build(cmdp_manager)
+            .build(mapping_manager)
             .await?;
 
         let mds_config = super::get_mssql_config(mds_connection_string).await?;
@@ -33,9 +39,17 @@ impl MssqlMappingResolver {
             .build(mds_manager)
             .await?;
 
+        let cmdp_config = super::get_mssql_config(cmdp_connection_string).await?;
+        let cmdp_manager = ConnectionManager::new(cmdp_config);
+        let cmdp_pool = Pool::builder()
+            .max_size(max_connections)
+            .build(cmdp_manager)
+            .await?;
+
         Ok(Self { 
-            cmdp_pool, 
+            mapping_pool, 
             mds_pool,
+            cmdp_pool,
             limits_cache: Mutex::new(HashMap::new()),
             before_cache: Mutex::new(HashMap::new()),
         })
@@ -65,7 +79,7 @@ impl MssqlMappingResolver {
     }
 
     async fn read_cmdp_mappings(&self, ids: &[Identifier]) -> Result<Vec<Mapping>> {
-        let mut client = self.cmdp_pool.get().await?;
+        let mut client = self.mapping_pool.get().await?;
         let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("@p{}", i)).collect();
         let query_text = format!(
             "SELECT * FROM CMDP_TO_MDS_MAPPING WHERE TIMESERIES_ID IN ({})",
@@ -389,6 +403,10 @@ impl MssqlMappingResolver {
             None => return Ok(crate::application::quote_index::FilterLimits::default()),
         };
 
+        if mapping.source == SourceKind::Hyperscale {
+            return Ok(crate::application::quote_index::FilterLimits::default());
+        }
+
         let ref_col = mapping.columns.iter()
             .find(|c| c.mds_name.eq_ignore_ascii_case("ReferenceTime"))
             .map(|c| c.source_name.as_str())
@@ -456,6 +474,10 @@ impl MssqlMappingResolver {
             Some(m) => m,
             None => return Err(anyhow!("No mapping found for ID {:?}", id)),
         };
+
+        if mapping.source == SourceKind::Hyperscale {
+            return Err(anyhow!("Max reference time before is not supported for Hyperscale"));
+        }
 
         let ref_col = mapping.columns.iter()
             .find(|c| c.mds_name.eq_ignore_ascii_case("ReferenceTime"))
