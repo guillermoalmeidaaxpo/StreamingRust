@@ -64,8 +64,58 @@ pub async fn transactional_stream(
     }
 }
 
-pub async fn generic_csv() -> impl IntoResponse {
-    StatusCode::NOT_IMPLEMENTED
+pub async fn generic_csv(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<crate::domain::request::GenericRequest>,
+) -> impl IntoResponse {
+    let ctx = crate::application::ports::RequestContext {
+        stage: "productive".to_string(),
+        is_mesap_endpoint: false,
+        data_category: crate::domain::DataCategory::TimeSeries,
+    };
+
+    let request = payload.into_request();
+
+    match state.pipeline.execute(ctx, vec![request]).await {
+        Ok(items) => {
+            let mut csv_output = String::new();
+            let mut header_sent = false;
+
+            for item in items {
+                if !header_sent {
+                    let mut header = "Id".to_string();
+                    let mut sorted_keys: Vec<_> = item.fields.keys().collect();
+                    sorted_keys.sort();
+                    for key in &sorted_keys {
+                        header.push(',');
+                        header.push_str(key);
+                    }
+                    header.push('\n');
+                    csv_output.push_str(&header);
+                    header_sent = true;
+                }
+
+                let mut line = item.id.to_string();
+                let mut sorted_keys: Vec<_> = item.fields.keys().collect();
+                sorted_keys.sort();
+                for key in sorted_keys {
+                    line.push(',');
+                    let value = &item.fields[key];
+                    line.push_str(&value.to_string().replace("\"", ""));
+                }
+                line.push('\n');
+                csv_output.push_str(&line);
+            }
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/csv")
+                .header(header::CONTENT_DISPOSITION, "attachment; filename=\"data.csv\"")
+                .body(axum::body::Body::from(csv_output))
+                .unwrap()
+        }
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
 }
 
 pub async fn generic_csv_stream(
