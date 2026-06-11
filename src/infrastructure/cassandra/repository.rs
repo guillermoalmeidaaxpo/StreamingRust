@@ -201,28 +201,19 @@ impl Repository for ScyllaRepository {
         let vals = build_serialized_values(&query.arguments)?;
 
         let stream = try_stream! {
-            let mut pager = match session.query_iter(query.statement.clone(), vals).await {
-                Ok(pager) => pager,
-                Err(e) => {
-                    tracing::error!("Scylla query_iter error for ID {}: {:?}", query.id, e);
-                    return Err(e.into());
-                }
-            };
+            let mut pager = session.query_iter(query.statement.clone(), vals).await.map_err(|e| {
+                tracing::error!("Scylla query_iter error for ID {}: {:?}", query.id, e);
+                e
+            })?;
             while let Some(row_result) = pager.next().await {
-                let row = match row_result {
-                    Ok(row) => row,
-                    Err(e) => {
-                        tracing::error!("Scylla row_result error for ID {}: {:?}", query.id, e);
-                        return Err(e.into());
-                    }
-                };
-                let item = match map_scylla_row(row, &query) {
-                    Ok(item) => item,
-                    Err(e) => {
-                        tracing::error!("Scylla map_scylla_row error for ID {}: {:?}", query.id, e);
-                        return Err(e);
-                    }
-                };
+                let row = row_result.map_err(|e| {
+                    tracing::error!("Scylla row_result error for ID {}: {:?}", query.id, e);
+                    e
+                })?;
+                let item = map_scylla_row(row, &query).map_err(|e| {
+                    tracing::error!("Scylla map_scylla_row error for ID {}: {:?}", query.id, e);
+                    e
+                })?;
                 yield item;
             }
         };

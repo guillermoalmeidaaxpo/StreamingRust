@@ -44,13 +44,10 @@ pub async fn transactional_stream(
             let ndjson_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;
                 while let Some(item_result) = stream.next().await {
-                    let item = match item_result {
-                        Ok(item) => item,
-                        Err(e) => {
-                            tracing::error!("Error in transactional_stream pipeline: {:?}", e);
-                            return Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()));
-                        }
-                    };
+                    let item = item_result.map_err(|e| {
+                        tracing::error!("Error in transactional_stream pipeline: {:?}", e);
+                        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                    })?;
                     let mut line = serde_json::to_string(&item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
                     line.push('\n');
                     yield line;
@@ -90,13 +87,10 @@ pub async fn generic_csv_stream(
                 let mut header_sent = false;
 
                 while let Some(item_result) = stream.next().await {
-                    let item = match item_result {
-                        Ok(item) => item,
-                        Err(e) => {
-                            tracing::error!("Error in generic_csv_stream pipeline: {:?}", e);
-                            return Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()));
-                        }
-                    };
+                    let item = item_result.map_err(|e| {
+                        tracing::error!("Error in generic_csv_stream pipeline: {:?}", e);
+                        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                    })?;
                     
                     if !header_sent {
                         let mut header = "Id".to_string();
