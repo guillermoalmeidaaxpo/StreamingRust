@@ -114,6 +114,11 @@ Request payloads from legacy clients often contain mixed casing (camelCase, Pasc
 - **Local vs. AKS Logging**: Configured `tracing-subscriber` in [main.rs](file:///C:/Projects/StreamingRust/src/main.rs) to automatically output pretty-printed, colored logs for local developer workstations, and switch to flat, single-line structured JSON logs when running in AKS containers (detected via `OUTBOUND_ENV` or `LOG_FORMAT=json`). This ensures compatibility with automated cloud logging agents (Fluentbit, Azure Monitor) without compromising local developer experience.
 - **OpenTelemetry OTLP Integration**: Configured `tracing-opentelemetry` in [main.rs](file:///C:/Projects/StreamingRust/src/main.rs) to automatically export distributed traces via gRPC/OTLP whenever the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable is defined. This allows direct trace ingestion into Azure Application Insights via the OpenTelemetry Collector DaemonSet in AKS without vendor-specific SDK lock-in.
 
+### 6.6 Statistics & Request Size Quota Validation
+- **MssqlStatisticsService**: Implemented a database-backed `MssqlStatisticsService` in [statistics.rs](file:///C:/Projects/StreamingRust/src/infrastructure/mssql/statistics.rs) to replace the `MockStatsService` placeholder. It queries the `TimeseriesStatistics`, `CurvesStatistics`, and `SurfacesStatistics` tables in the MDS database to retrieve historical data bounds.
+- **DatapointsCalculator**: Ported the C# data points estimation engine to Rust to calculate the total estimated row count for a request. This parses temporal intervals and filters (e.g. `ReferenceTime`, `DeliveryStart`, `DeliveryEnd`, and `RelativeDeliveryPeriod`), adjusting endpoints by resolution and checking constraints.
+- **Quota Validation Enforcement**: Re-enabled and configured `DataRowsNumberValidator` in [validator.rs](file:///C:/Projects/StreamingRust/src/application/validator.rs) to enforce size limits (throwing an error matching the legacy contract if the requested row count exceeds the quota), protecting the service against out-of-memory or database timeouts.
+
 ---
 
 ## 7. Project Tooling
