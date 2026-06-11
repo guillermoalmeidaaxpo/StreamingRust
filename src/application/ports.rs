@@ -18,6 +18,7 @@ pub trait MappingResolver: Send + Sync {
     async fn resolve_mappings(&self, ids: &[Identifier], category: DataCategory, stage: &str) -> Result<Vec<Mapping>>;
     async fn get_watermark(&self, mappings: &[Mapping]) -> Result<DateTime<Utc>>;
     async fn get_filter_limits(&self, ids: &[Identifier], category: DataCategory) -> Result<FilterLimits>;
+    async fn get_max_reference_time_before(&self, id: Identifier, reference_time: DateTime<Utc>, comparison_operator: &str, category: DataCategory) -> Result<DateTime<Utc>>;
 }
 
 #[async_trait]

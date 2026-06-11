@@ -6,10 +6,15 @@ use anyhow::{Result, anyhow};
 use tiberius::{Query, Row};
 use bb8_tiberius::ConnectionManager;
 use bb8::Pool;
+use std::sync::Mutex;
+use std::collections::HashMap;
+use std::time::{Instant, Duration};
 
 pub struct MssqlMappingResolver {
     cmdp_pool: Pool<ConnectionManager>,
     mds_pool: Pool<ConnectionManager>,
+    limits_cache: Mutex<HashMap<(i64, DataCategory), (Instant, crate::application::quote_index::FilterLimits)>>,
+    before_cache: Mutex<HashMap<(i64, i64, String), (Instant, DateTime<Utc>)>>,
 }
 
 impl MssqlMappingResolver {
@@ -28,7 +33,12 @@ impl MssqlMappingResolver {
             .build(mds_manager)
             .await?;
 
-        Ok(Self { cmdp_pool, mds_pool })
+        Ok(Self { 
+            cmdp_pool, 
+            mds_pool,
+            limits_cache: Mutex::new(HashMap::new()),
+            before_cache: Mutex::new(HashMap::new()),
+        })
     }
 
     fn group_by_switchover(&self, mappings: Vec<Mapping>) -> SwitchoverGroups {
@@ -321,7 +331,172 @@ impl MappingResolver for MssqlMappingResolver {
         Ok(Utc::now())
     }
 
-    async fn get_filter_limits(&self, _ids: &[Identifier], _category: DataCategory) -> Result<crate::application::quote_index::FilterLimits> {
-        Ok(crate::application::quote_index::FilterLimits::default())
+    async fn get_filter_limits(&self, ids: &[Identifier], category: DataCategory) -> Result<crate::application::quote_index::FilterLimits> {
+        if ids.is_empty() {
+            return Ok(crate::application::quote_index::FilterLimits::default());
+        }
+        let now = Instant::now();
+        let key = (i64::from(ids[0]), category);
+
+        if let Ok(cache) = self.limits_cache.lock() {
+            if let Some((timestamp, cached_val)) = cache.get(&key) {
+                if now.duration_since(*timestamp) < Duration::from_secs(600) {
+                    return Ok(cached_val.clone());
+                }
+            }
+        }
+
+        let result = self.get_filter_limits_db(ids, category).await?;
+
+        if let Ok(mut cache) = self.limits_cache.lock() {
+            cache.insert(key, (now, result.clone()));
+        }
+
+        Ok(result)
+    }
+
+    async fn get_max_reference_time_before(&self, id: Identifier, reference_time: DateTime<Utc>, comparison_operator: &str, category: DataCategory) -> Result<DateTime<Utc>> {
+        let now = Instant::now();
+        let key = (i64::from(id), reference_time.timestamp(), comparison_operator.to_string());
+        
+        if let Ok(cache) = self.before_cache.lock() {
+            if let Some((timestamp, cached_val)) = cache.get(&key) {
+                if now.duration_since(*timestamp) < Duration::from_secs(600) {
+                    return Ok(*cached_val);
+                }
+            }
+        }
+
+        let result = self.get_max_reference_time_before_db(id, reference_time, comparison_operator, category).await?;
+
+        if let Ok(mut cache) = self.before_cache.lock() {
+            cache.insert(key, (now, result));
+        }
+
+        Ok(result)
+    }
+}
+
+impl MssqlMappingResolver {
+    async fn get_filter_limits_db(&self, ids: &[Identifier], category: DataCategory) -> Result<crate::application::quote_index::FilterLimits> {
+        let mut mapping_opt = self.read_cmdp_mappings(ids).await.ok().and_then(|m| if m.is_empty() { None } else { Some(m[0].clone()) });
+        if mapping_opt.is_none() {
+            mapping_opt = self.read_mds_domain_mappings(ids, category).await.ok().and_then(|m| if m.is_empty() { None } else { Some(m[0].clone()) });
+        }
+
+        let mapping = match mapping_opt {
+            Some(m) => m,
+            None => return Ok(crate::application::quote_index::FilterLimits::default()),
+        };
+
+        let ref_col = mapping.columns.iter()
+            .find(|c| c.mds_name.eq_ignore_ascii_case("ReferenceTime"))
+            .map(|c| c.source_name.as_str())
+            .unwrap_or("ReferenceTime");
+
+        let del_col = mapping.columns.iter()
+            .find(|c| c.mds_name.eq_ignore_ascii_case("DeliveryStart"))
+            .map(|c| c.source_name.as_str())
+            .unwrap_or("");
+
+        let mut client = self.mds_pool.get().await?;
+        let mut query = Query::new(
+            "DECLARE @minRef DATETIMEOFFSET; \
+             DECLARE @maxRef DATETIMEOFFSET; \
+             EXEC [MDS].[CalculateMinMaxReferenceTimeDeliveryStart] \
+                 @Id = @p1, \
+                 @referenceTimeIndexedFieldName = @p2, \
+                 @referenceTimeFieldName = @p3, \
+                 @deliveryStartFieldName = @p4, \
+                 @getMinReferenceTime = @p5, \
+                 @getMaxReferenceTime = @p6, \
+                 @getMinMaxDeliveryStart = @p7, \
+                 @schemaQualifiedViewName = @p8, \
+                 @minReferenceTime = @minRef OUTPUT, \
+                 @maxReferenceTime = @maxRef OUTPUT; \
+             SELECT @minRef AS minReferenceTime, @maxRef AS maxReferenceTime;"
+        );
+        let mdo_id: i64 = ids[0].into();
+        query.bind(mdo_id);
+        query.bind(mapping.index_field.as_str());
+        query.bind(ref_col);
+        query.bind(del_col);
+        query.bind(true);
+        query.bind(true);
+        query.bind(false);
+        query.bind(mapping.view_name.as_str());
+
+        let stream = query.query(&mut client).await?;
+        let row_opt = stream.into_row().await?;
+
+        if let Some(row) = row_opt {
+            let min_ref_opt: Option<chrono::DateTime<chrono::FixedOffset>> = row.try_get("minReferenceTime").ok().flatten();
+            let max_ref_opt: Option<chrono::DateTime<chrono::FixedOffset>> = row.try_get("maxReferenceTime").ok().flatten();
+
+            let min_reference_time = min_ref_opt.map(|dt| dt.with_timezone(&Utc));
+            let max_reference_time = max_ref_opt.map(|dt| dt.with_timezone(&Utc));
+
+            Ok(crate::application::quote_index::FilterLimits {
+                min_reference_time,
+                max_reference_time,
+            })
+        } else {
+            Ok(crate::application::quote_index::FilterLimits::default())
+        }
+    }
+
+    async fn get_max_reference_time_before_db(&self, id: Identifier, reference_time: DateTime<Utc>, comparison_operator: &str, category: DataCategory) -> Result<DateTime<Utc>> {
+        let ids = &[id];
+        let mut mapping_opt = self.read_cmdp_mappings(ids).await.ok().and_then(|m| if m.is_empty() { None } else { Some(m[0].clone()) });
+        if mapping_opt.is_none() {
+            mapping_opt = self.read_mds_domain_mappings(ids, category).await.ok().and_then(|m| if m.is_empty() { None } else { Some(m[0].clone()) });
+        }
+
+        let mapping = match mapping_opt {
+            Some(m) => m,
+            None => return Err(anyhow!("No mapping found for ID {:?}", id)),
+        };
+
+        let ref_col = mapping.columns.iter()
+            .find(|c| c.mds_name.eq_ignore_ascii_case("ReferenceTime"))
+            .map(|c| c.source_name.as_str())
+            .unwrap_or("ReferenceTime");
+
+        let mut client = self.mds_pool.get().await?;
+        let mut query = Query::new(
+            "DECLARE @localMaxRef DATETIMEOFFSET; \
+             EXEC [MDS].[GetMaxReferenceTimeBefore] \
+                 @Id = @p1, \
+                 @referenceTimeIndexedFieldName = @p2, \
+                 @referenceTimeFieldName = @p3, \
+                 @schemaQualifiedViewName = @p4, \
+                 @comparisonOperator = @p5, \
+                 @inputReferenceTime = @p6, \
+                 @localMaxReferenceTime = @localMaxRef OUTPUT; \
+             SELECT @localMaxRef AS localMaxReferenceTime;"
+        );
+
+        let mdo_id: i64 = id.into();
+        query.bind(mdo_id);
+        query.bind(mapping.index_field.as_str());
+        query.bind(ref_col);
+        query.bind(mapping.view_name.as_str());
+        query.bind(comparison_operator);
+        
+        let fixed_dt = reference_time.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
+        query.bind(fixed_dt);
+
+        let stream = query.query(&mut client).await?;
+        let row_opt = stream.into_row().await?;
+
+        if let Some(row) = row_opt {
+            let res_opt: Option<chrono::DateTime<chrono::FixedOffset>> = row.try_get("localMaxReferenceTime").ok().flatten();
+            match res_opt {
+                Some(dt) => Ok(dt.with_timezone(&Utc)),
+                None => Err(anyhow!("No reference time found before {:?}", reference_time)),
+            }
+        } else {
+            Err(anyhow!("No reference time found before {:?}", reference_time))
+        }
     }
 }
