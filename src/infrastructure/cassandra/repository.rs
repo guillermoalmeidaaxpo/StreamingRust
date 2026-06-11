@@ -181,7 +181,7 @@ impl Repository for ScyllaRepository {
         tracing::info!("Executing Scylla query for ID: {}", query.id);
         
         let vals = build_serialized_values(&query.arguments)?;
-        let result = self.session.query(query.statement, vals).await?;
+        let result = self.session.query(query.statement.clone(), vals).await?;
         
         let mut items = Vec::new();
         if let Some(rows) = result.rows {
@@ -201,7 +201,7 @@ impl Repository for ScyllaRepository {
         let vals = build_serialized_values(&query.arguments)?;
 
         let stream = try_stream! {
-            let mut pager = session.query_iter(query.statement, vals).await?;
+            let mut pager = session.query_iter(query.statement.clone(), vals).await?;
             while let Some(row_result) = pager.next().await {
                 let row = row_result?;
                 let item = map_scylla_row(row, &query)?;
