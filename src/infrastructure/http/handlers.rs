@@ -1,6 +1,6 @@
 use axum::{
     extract::{State, Json},
-    http::{StatusCode, header},
+    http::{StatusCode, header, Uri},
     response::{IntoResponse, Response},
 };
 use std::sync::Arc;
@@ -13,31 +13,60 @@ pub async fn health() -> impl IntoResponse {
     StatusCode::OK
 }
 
+fn resolve_context(uri: &Uri, default_stage: &str) -> crate::application::ports::RequestContext {
+    let path = uri.path();
+    
+    let stage = if path.contains("/design") {
+        "design".to_string()
+    } else if path.contains("/validation") {
+        "validation".to_string()
+    } else if path.contains("/migration") {
+        "migration".to_string()
+    } else if path.contains("/productive") {
+        "productive".to_string()
+    } else {
+        default_stage.to_string()
+    };
+
+    let data_category = if path.contains("/curves") {
+        crate::domain::DataCategory::Curves
+    } else if path.contains("/surfaces") {
+        crate::domain::DataCategory::Surfaces
+    } else {
+        crate::domain::DataCategory::TimeSeries
+    };
+
+    let is_mesap_endpoint = path.contains("/mesap") || path.contains("mesaptransition");
+
+    crate::application::ports::RequestContext {
+        stage,
+        is_mesap_endpoint,
+        data_category,
+    }
+}
+
 pub async fn transactional(
     State(state): State<Arc<AppState>>,
+    uri: Uri,
     Json(payload): Json<Vec<Request>>,
 ) -> impl IntoResponse {
-    let ctx = crate::application::ports::RequestContext {
-        stage: "productive".to_string(), // This should ideally come from config or path
-        is_mesap_endpoint: false, // This should come from path
-        data_category: crate::domain::DataCategory::TimeSeries, // Default or derived
-    };
+    let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     match state.pipeline.execute(ctx, payload).await {
         Ok(data) => (StatusCode::OK, Json(data)).into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => {
+            tracing::error!("Error in transactional endpoint ({}): {:?}", uri.path(), err);
+            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+        }
     }
 }
 
 pub async fn transactional_stream(
     State(state): State<Arc<AppState>>,
+    uri: Uri,
     Json(payload): Json<Vec<Request>>,
 ) -> impl IntoResponse {
-    let ctx = crate::application::ports::RequestContext {
-        stage: "productive".to_string(),
-        is_mesap_endpoint: false,
-        data_category: crate::domain::DataCategory::TimeSeries,
-    };
+    let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     match state.pipeline.stream(ctx, payload).await {
         Ok(stream) => {
@@ -45,7 +74,7 @@ pub async fn transactional_stream(
                 let mut stream = stream;
                 while let Some(item_result) = stream.next().await {
                     let item = item_result.map_err(|e| {
-                        tracing::error!("Error in transactional_stream pipeline: {:?}", e);
+                        tracing::error!("Error in transactional_stream pipeline ({}): {:?}", uri.path(), e);
                         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                     })?;
                     let mut line = serde_json::to_string(&item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
@@ -60,19 +89,19 @@ pub async fn transactional_stream(
                 .body(axum::body::Body::from_stream(ndjson_stream))
                 .unwrap()
         }
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => {
+            tracing::error!("Error in transactional_stream endpoint ({}): {:?}", uri.path(), err);
+            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+        }
     }
 }
 
 pub async fn generic_csv(
     State(state): State<Arc<AppState>>,
+    uri: Uri,
     Json(payload): Json<crate::domain::request::GenericRequest>,
 ) -> impl IntoResponse {
-    let ctx = crate::application::ports::RequestContext {
-        stage: "productive".to_string(),
-        is_mesap_endpoint: false,
-        data_category: crate::domain::DataCategory::TimeSeries,
-    };
+    let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     let request = payload.into_request();
 
@@ -114,19 +143,19 @@ pub async fn generic_csv(
                 .body(axum::body::Body::from(csv_output))
                 .unwrap()
         }
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => {
+            tracing::error!("Error in generic_csv endpoint ({}): {:?}", uri.path(), err);
+            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+        }
     }
 }
 
 pub async fn generic_csv_stream(
     State(state): State<Arc<AppState>>,
+    uri: Uri,
     Json(payload): Json<crate::domain::request::GenericRequest>,
 ) -> impl IntoResponse {
-    let ctx = crate::application::ports::RequestContext {
-        stage: "productive".to_string(),
-        is_mesap_endpoint: false,
-        data_category: crate::domain::DataCategory::TimeSeries,
-    };
+    let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     let request = payload.into_request();
 
@@ -138,7 +167,7 @@ pub async fn generic_csv_stream(
 
                 while let Some(item_result) = stream.next().await {
                     let item = item_result.map_err(|e| {
-                        tracing::error!("Error in generic_csv_stream pipeline: {:?}", e);
+                        tracing::error!("Error in generic_csv_stream pipeline ({}): {:?}", uri.path(), e);
                         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                     })?;
                     
@@ -175,7 +204,10 @@ pub async fn generic_csv_stream(
                 .body(axum::body::Body::from_stream(csv_stream))
                 .unwrap()
         }
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => {
+            tracing::error!("Error in generic_csv_stream endpoint ({}): {:?}", uri.path(), err);
+            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+        }
     }
 }
 
