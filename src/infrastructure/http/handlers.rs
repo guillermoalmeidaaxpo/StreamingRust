@@ -50,6 +50,7 @@ pub async fn transactional(
     uri: Uri,
     Json(payload): Json<Vec<Request>>,
 ) -> impl IntoResponse {
+    tracing::info!("Request received - Endpoint: POST {}, Payload: {:?}", uri.path(), payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     match state.pipeline.execute(ctx, payload).await {
@@ -66,6 +67,7 @@ pub async fn transactional_stream(
     uri: Uri,
     Json(payload): Json<Vec<Request>>,
 ) -> impl IntoResponse {
+    tracing::info!("Request received - Endpoint: POST {}, Payload: {:?}", uri.path(), payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     match state.pipeline.stream(ctx, payload).await {
@@ -101,6 +103,7 @@ pub async fn generic_csv(
     uri: Uri,
     Json(payload): Json<crate::domain::request::GenericRequest>,
 ) -> impl IntoResponse {
+    tracing::info!("Request received - Endpoint: POST {}, Payload: {:?}", uri.path(), payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     let request = payload.into_request();
@@ -155,6 +158,7 @@ pub async fn generic_csv_stream(
     uri: Uri,
     Json(payload): Json<crate::domain::request::GenericRequest>,
 ) -> impl IntoResponse {
+    tracing::info!("Request received - Endpoint: POST {}, Payload: {:?}", uri.path(), payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
     let request = payload.into_request();
