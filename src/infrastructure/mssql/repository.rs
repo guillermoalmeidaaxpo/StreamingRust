@@ -20,7 +20,7 @@ pub struct MssqlRepository {
 
 impl MssqlRepository {
     pub async fn new(connection_string: &str, gate: Arc<dyn ConnectionGate>) -> Result<Self> {
-        let config = Config::from_ado_string(connection_string)?;
+        let config = super::get_mssql_config(connection_string).await?;
         let manager = ConnectionManager::new(config);
         let pool = Pool::builder().build(manager).await?;
 

@@ -23,6 +23,8 @@ scylla = "0.13"
 fred = { version = "9.0", features = ["serde-json", "rustls", "i-scripts"] }
 bb8 = "0.8"
 bb8-tiberius = "0.15"
+azure_identity = "0.21"
+azure_core = "0.21"
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }

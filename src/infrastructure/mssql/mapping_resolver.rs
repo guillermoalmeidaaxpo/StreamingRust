@@ -14,11 +14,11 @@ pub struct MssqlMappingResolver {
 
 impl MssqlMappingResolver {
     pub async fn new(cmdp_connection_string: &str, mds_connection_string: &str) -> Result<Self> {
-        let cmdp_config = Config::from_ado_string(cmdp_connection_string)?;
+        let cmdp_config = super::get_mssql_config(cmdp_connection_string).await?;
         let cmdp_manager = ConnectionManager::new(cmdp_config);
         let cmdp_pool = Pool::builder().build(cmdp_manager).await?;
 
-        let mds_config = Config::from_ado_string(mds_connection_string)?;
+        let mds_config = super::get_mssql_config(mds_connection_string).await?;
         let mds_manager = ConnectionManager::new(mds_config);
         let mds_pool = Pool::builder().build(mds_manager).await?;
 
