@@ -7,11 +7,15 @@ use bb8::Pool;
 use std::sync::Arc;
 use tiberius::Query;
 use chrono::{DateTime, Utc, Datelike, TimeZone};
+use std::sync::Mutex;
+use std::collections::HashMap;
+use std::time::{Instant, Duration};
 
 pub struct MssqlStatisticsService {
     pool: Pool<ConnectionManager>,
     mapping_resolver: Arc<dyn MappingResolver>,
     stage: String,
+    cache: Mutex<HashMap<(i64, DataCategory), (Instant, Option<DbStatistics>)>>,
 }
 
 impl MssqlStatisticsService {
@@ -31,10 +35,32 @@ impl MssqlStatisticsService {
             pool,
             mapping_resolver,
             stage,
+            cache: Mutex::new(HashMap::new()),
         })
     }
 
     async fn fetch_statistics(&self, mdo_id: i64, category: DataCategory) -> Result<Option<DbStatistics>> {
+        let now = Instant::now();
+        
+        if let Ok(cache) = self.cache.lock() {
+            if let Some((timestamp, cached_val)) = cache.get(&(mdo_id, category)) {
+                // 10 minutes sliding/expiration window matching C# sliding window
+                if now.duration_since(*timestamp) < Duration::from_secs(600) {
+                    return Ok(cached_val.clone());
+                }
+            }
+        }
+
+        let statistics_opt = self.fetch_statistics_db(mdo_id, category).await?;
+
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.insert((mdo_id, category), (now, statistics_opt.clone()));
+        }
+
+        Ok(statistics_opt)
+    }
+
+    async fn fetch_statistics_db(&self, mdo_id: i64, category: DataCategory) -> Result<Option<DbStatistics>> {
         let (table_name, projection) = match category {
             DataCategory::TimeSeries => (
                 "TimeseriesStatistics",
@@ -110,6 +136,7 @@ impl MssqlStatisticsService {
     }
 }
 
+#[derive(Clone)]
 struct DbStatistics {
     mdo_id: i64,
     first_reference_time: DateTime<Utc>,
