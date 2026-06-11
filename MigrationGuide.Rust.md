@@ -109,6 +109,10 @@ Request payloads from legacy clients often contain mixed casing (camelCase, Pasc
 - **Chrono Feature**: Enabled the `chrono` feature on `scylla` in [Cargo.toml](file:///C:/Projects/StreamingRust/Cargo.toml#L22) to allow decoding database `timestamp` columns directly to `Option<DateTime<Utc>>` in [repository.rs](file:///C:/Projects/StreamingRust/src/infrastructure/cassandra/repository.rs#L102).
 - **Legacy Parameters**: The modern Scylla API requires a static `ColumnType` for query parameters, which is unavailable for simple dynamic queries. Resolved by importing `LegacySerializedValues` (aliased to `SerializedValues` in [repository.rs](file:///C:/Projects/StreamingRust/src/infrastructure/cassandra/repository.rs#L13)) to support dynamic parameters.
 
+### 6.5 Dynamic Endpoint Context & Environment-Aware Logging
+- **Dynamic Context Resolution**: Refactored the core transactional and generic endpoint handlers in [handlers.rs](file:///C:/Projects/StreamingRust/src/infrastructure/http/handlers.rs) to dynamically resolve the request context (stage, data category, mesap flags) using the Axum `Uri` extractor rather than hardcoding static settings.
+- **Local vs. AKS Logging**: Configured `tracing-subscriber` in [main.rs](file:///C:/Projects/StreamingRust/src/main.rs) to automatically output pretty-printed, colored logs for local developer workstations, and switch to flat, single-line structured JSON logs when running in AKS containers (detected via `OUTBOUND_ENV` or `LOG_FORMAT=json`). This ensures compatibility with automated cloud logging agents (Fluentbit, Azure Monitor) without compromising local developer experience.
+
 ---
 
 ## 7. Project Tooling
