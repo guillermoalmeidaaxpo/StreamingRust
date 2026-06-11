@@ -51,8 +51,9 @@ async fn main() {
 
     if otel_endpoint != "NOT SET" && !otel_endpoint.is_empty() {
         use opentelemetry_otlp::WithExportConfig;
+        use opentelemetry::trace::TracerProvider as _;
         
-        let tracer = opentelemetry_otlp::new_pipeline()
+        let provider = opentelemetry_otlp::new_pipeline()
             .tracing()
             .with_exporter(
                 opentelemetry_otlp::new_exporter()
@@ -60,8 +61,9 @@ async fn main() {
                     .with_endpoint(otel_endpoint.clone()),
             )
             .install_batch(opentelemetry_sdk::runtime::Tokio)
-            .expect("Failed to initialize OpenTelemetry OTLP tracer");
+            .expect("Failed to initialize OpenTelemetry OTLP provider");
 
+        let tracer = provider.tracer("streaming-rust");
         let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
         registry.with(telemetry_layer).init();
         tracing::info!("OpenTelemetry tracing enabled via OTLP endpoint: {}", otel_endpoint);
