@@ -48,7 +48,14 @@ function Test-Endpoint {
 
 if (![string]::IsNullOrWhiteSpace($Endpoint)) {
     Write-Host "Executing Custom Request..." -Style Bold
-    Test-Endpoint "Custom Request" "POST" $Endpoint $Payload
+    
+    $activePayload = $Payload
+    if (![string]::IsNullOrWhiteSpace($Payload) -and (Test-Path $Payload -PathType Leaf)) {
+        Write-Host "  INFO: Loading payload from file: $Payload" -ForegroundColor Gray
+        $activePayload = Get-Content -Path $Payload -Raw
+    }
+
+    Test-Endpoint "Custom Request" "POST" $Endpoint $activePayload
     exit
 }
 
