@@ -421,6 +421,8 @@ impl MssqlMappingResolver {
         let mut query = Query::new(
             "DECLARE @minRef DATETIMEOFFSET; \
              DECLARE @maxRef DATETIMEOFFSET; \
+             DECLARE @minDel DATETIMEOFFSET; \
+             DECLARE @maxDel DATETIMEOFFSET; \
              EXEC [MDS].[CalculateMinMaxReferenceTimeDeliveryStart] \
                  @Id = @p1, \
                  @referenceTimeIndexedFieldName = @p2, \
@@ -431,7 +433,9 @@ impl MssqlMappingResolver {
                  @getMinMaxDeliveryStart = @p7, \
                  @schemaQualifiedViewName = @p8, \
                  @minReferenceTime = @minRef OUTPUT, \
-                 @maxReferenceTime = @maxRef OUTPUT; \
+                 @maxReferenceTime = @maxRef OUTPUT, \
+                 @minDeliveryStart = @minDel OUTPUT, \
+                 @maxDeliveryStart = @maxDel OUTPUT; \
              SELECT @minRef AS minReferenceTime, @maxRef AS maxReferenceTime;"
         );
         let mdo_id: i64 = ids[0].into();
