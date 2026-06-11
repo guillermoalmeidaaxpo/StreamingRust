@@ -399,7 +399,7 @@ impl MssqlMappingResolver {
             .map(|c| c.source_name.as_str())
             .unwrap_or("");
 
-        let mut client = self.mds_pool.get().await?;
+        let mut client = self.cmdp_pool.get().await?;
         let mut query = Query::new(
             "DECLARE @minRef DATETIMEOFFSET; \
              DECLARE @maxRef DATETIMEOFFSET; \
@@ -462,7 +462,7 @@ impl MssqlMappingResolver {
             .map(|c| c.source_name.as_str())
             .unwrap_or("ReferenceTime");
 
-        let mut client = self.mds_pool.get().await?;
+        let mut client = self.cmdp_pool.get().await?;
         let mut query = Query::new(
             "DECLARE @localMaxRef DATETIMEOFFSET; \
              EXEC [MDS].[GetMaxReferenceTimeBefore] \
