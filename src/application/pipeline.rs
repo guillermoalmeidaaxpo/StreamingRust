@@ -36,6 +36,10 @@ impl Pipeline {
         }
     }
 
+    pub fn row_validator(&self) -> &DataRowsNumberValidator {
+        &self.row_validator
+    }
+
     pub async fn execute(&self, ctx: RequestContext, requests: Vec<Request>) -> Result<Vec<DataItem>> {
         // 1. Basic Contract Validation
         self.validator.validate(&requests)?;
@@ -44,13 +48,10 @@ impl Pipeline {
         let strategy = self.validation_resolver.resolve(ctx.data_category)?;
         strategy.validate(&requests)?;
 
-        // 3. Block oversized requests
-        self.row_validator.validate_row_count(&requests).await?;
-
-        // 4. Build Plan
+        // 3. Build Plan
         let plan = self.planner.build_plan(ctx, requests).await?;
 
-        // 5. Execute Plan in Parallel
+        // 4. Execute Plan in Parallel
         use futures::stream::{StreamExt, FuturesUnordered};
 
         let mut futures = FuturesUnordered::new();

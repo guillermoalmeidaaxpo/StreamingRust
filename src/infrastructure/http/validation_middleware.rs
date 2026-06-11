@@ -35,13 +35,24 @@ pub async fn validation_middleware(
     let payload: Vec<DomainRequest> = serde_json::from_slice(&bytes)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    // 4. Validate
+    // 4. Validate Contract
     if let Err(e) = strategy.validate(&payload) {
         tracing::warn!("Validation failed: {}", e);
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    // 5. Reconstruct request
+    // 5. Block oversized requests (NON-STREAMING ONLY)
+    // 15.1 Requirement: DataRowsNumberValidator at validation time
+    let is_streaming = parts.uri.path().contains("/streaming");
+    if !is_streaming {
+        state.pipeline.row_validator().validate_row_count(&payload).await
+            .map_err(|e| {
+                tracing::warn!("Row count validation failed: {}", e);
+                StatusCode::BAD_REQUEST
+            })?;
+    }
+
+    // 6. Reconstruct request
     let mut request = Request::from_parts(parts, Body::from(bytes));
     request.extensions_mut().insert(payload);
     
