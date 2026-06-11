@@ -91,16 +91,34 @@ Rust implementation uses `tokio::spawn` for every repository query. We integrate
 ### 5.2 Zero-Buffer Streaming
 By utilizing `async-stream` and Axum's `Body::from_stream`, the Rust API maintains a near-constant memory footprint. Data is transformed and yielded as NDJSON/CSV lines as soon as they arrive from the database wire, eliminating the 100MB+ buffering overhead often seen in the legacy .NET implementation for large requests.
 
+## 6. Critical Migration Resolutions & Lessons Learned
+
+### 6.1 Azure Active Directory SQL Authentication
+Unlike .NET's `Microsoft.Data.SqlClient`, Tiberius does not natively support SQL Authentication via Active Directory Federations (`ActiveDirectoryDefault`/`fedauth`). 
+- **Resolution**: Implemented dynamic token retrieval using `azure_identity::DefaultAzureCredential` inside [mod.rs](file:///C:/Projects/StreamingRust/src/infrastructure/mssql/mod.rs#L15). The retrieved token is passed to Tiberius as `AuthMethod::AADToken` when fedauth is detected in the connection string.
+
+### 6.2 Flexible JWT Audience Validation
+Under Entra ID, the `aud` (audience) claim in JWTs can be returned either as a single string or an array of strings. 
+- **Resolution**: Defined a custom Serde deserializer with an untagged enum (`Audience`) inside the `Claims` struct in [middleware.rs](file:///C:/Projects/StreamingRust/src/infrastructure/auth/middleware.rs) to cleanly parse both formats, preventing `401 Unauthorized` errors.
+
+### 6.3 Case-Insensitive DTO Deserialization
+Request payloads from legacy clients often contain mixed casing (camelCase, PascalCase, or uppercase).
+- **Resolution**: Configured [request.rs](file:///C:/Projects/StreamingRust/src/domain/request.rs) field mappings with Serde aliases (e.g., `#[serde(alias = "TsIds")]`) to guarantee case-insensitive deserialization for all generic request schemas.
+
+### 6.4 ScyllaDB 0.13 Compatibility & Dynamic Parameters
+- **Chrono Feature**: Enabled the `chrono` feature on `scylla` in [Cargo.toml](file:///C:/Projects/StreamingRust/Cargo.toml#L22) to allow decoding database `timestamp` columns directly to `Option<DateTime<Utc>>` in [repository.rs](file:///C:/Projects/StreamingRust/src/infrastructure/cassandra/repository.rs#L102).
+- **Legacy Parameters**: The modern Scylla API requires a static `ColumnType` for query parameters, which is unavailable for simple dynamic queries. Resolved by importing `LegacySerializedValues` (aliased to `SerializedValues` in [repository.rs](file:///C:/Projects/StreamingRust/src/infrastructure/cassandra/repository.rs#L13)) to support dynamic parameters.
+
 ---
 
-## 6. Project Tooling
+## 7. Project Tooling
 
 - **ANTLR Snapshots:** The project includes `antlr4-4.13.3-SNAPSHOT-complete.jar` in `tools/antlr/` to ensure the Rust target is always reproducible.
 - **Dynamic Smoke Test:** `tests/smoke_test.ps1` provides a CLI tool for ad-hoc verification of any endpoint, payload, or JWT.
 
 ---
 
-## 7. Next Steps
+## 8. Next Steps
 
 1.  **Test Suite Migration:** Final porting of BDD scenarios from C# Reqnroll to Rust integration tests.
 2.  **Telemetry:** Integration of `tracing-opentelemetry` to export to Application Insights.
@@ -108,5 +126,5 @@ By utilizing `async-stream` and Axum's `Body::from_stream`, the Rust API maintai
 
 ---
 
-## 8. Source Repository
+## 9. Source Repository
 **[https://github.com/guillermoalmeidaaxpo/StreamingRust.git](https://github.com/guillermoalmeidaaxpo/StreamingRust.git)**
