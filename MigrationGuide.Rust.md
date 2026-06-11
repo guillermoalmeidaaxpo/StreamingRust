@@ -59,6 +59,12 @@ The migration has reached a production-ready state with the following components
 - [x] **Gas Intervals:** Implementation of specialized 06:00 AM local boundaries for `GasDay`, `GasWeek`, `GasMonth`, `GasSummer`, and `GasWinter`.
 - [x] **Midnight Logic:** Refined `QuoteIndexGenerator` with strict C# parity for date truncation and partitioned index generation (`YYYYMMDD`).
 
+### 3.5 License Validation Flow
+- [x] **Two-Step Verification:** Implemented `HttpLicenseValidator` which first calls `/DataUniverse/BulkAuthorize` (MDO ownership) and then `/TimeSeries/Authorize` (specific license).
+- [x] **Token Propagation:** The validated JWT Bearer token is automatically carried forward from the Auth middleware to both License API calls.
+- [x] **Fail-Open Logic:** If the License API URL is not configured (or set to "NOT SET"), the service automatically assumes valid licenses, allowing for flexible local development and deployment.
+- [x] **Traceability:** Integrated `X-Correlation-ID` propagation in the `license_middleware.rs` to ensure full cross-service observability.
+
 ---
 
 ## 4. Architectural Alignment Matrix
@@ -66,6 +72,8 @@ The migration has reached a production-ready state with the following components
 | C# Source Component | Rust Implementation | Parity Level |
 | :--- | :--- | :--- |
 | `ValidationMiddleware.cs` | `validation_middleware.rs` | 100% |
+| `LicenseValidatorMiddleware.cs`| `license_middleware.rs` | 100% |
+| `ILicenseValidatorApiClient.cs`| `HttpLicenseValidator.rs` | 100% (2-step check) |
 | `MdoMappingRepository.cs` | `MssqlMappingResolver.rs` | 100% (Dual Pools) |
 | `QuoteIndexGenerator.cs` | `quote_index.rs` | 100% (Midnight logic) |
 | `RankOverClauseBuilder.cs`| `mssql/query_builder.rs` | Implemented |
