@@ -85,6 +85,8 @@ pub async fn transactional_stream(
             let ndjson_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;
                 let mut count = 0;
+                let mut buffer = String::with_capacity(65536);
+                
                 while let Some(item_result) = stream.next().await {
                     let item = item_result.map_err(|e| {
                         tracing::error!("Error in transactional_stream pipeline ({}): {:?}", path_clone, e);
@@ -92,9 +94,20 @@ pub async fn transactional_stream(
                     })?;
                     let mut line = serde_json::to_string(&item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
                     line.push('\n');
-                    yield line;
+                    
+                    buffer.push_str(&line);
                     count += 1;
+                    
+                    if buffer.len() >= 65536 {
+                        let chunk = std::mem::replace(&mut buffer, String::with_capacity(65536));
+                        yield chunk;
+                    }
                 }
+                
+                if !buffer.is_empty() {
+                    yield buffer;
+                }
+                
                 tracing::info!("Finished streaming response - Endpoint: POST {}, Items sent: {}, Duration: {:?}", path_clone, count, start_time.elapsed());
             });
 
@@ -192,6 +205,7 @@ pub async fn generic_csv_stream(
                 let mut stream = stream;
                 let mut header_sent = false;
                 let mut count = 0;
+                let mut buffer = String::with_capacity(65536);
 
                 while let Some(item_result) = stream.next().await {
                     let item = item_result.map_err(|e| {
@@ -208,7 +222,7 @@ pub async fn generic_csv_stream(
                             header.push_str(key);
                         }
                         header.push('\n');
-                        yield header;
+                        buffer.push_str(&header);
                         header_sent = true;
                     }
 
@@ -221,9 +235,20 @@ pub async fn generic_csv_stream(
                         line.push_str(&value.to_string().replace("\"", ""));
                     }
                     line.push('\n');
-                    yield line;
+                    
+                    buffer.push_str(&line);
                     count += 1;
+                    
+                    if buffer.len() >= 65536 {
+                        let chunk = std::mem::replace(&mut buffer, String::with_capacity(65536));
+                        yield chunk;
+                    }
                 }
+                
+                if !buffer.is_empty() {
+                    yield buffer;
+                }
+                
                 tracing::info!("Finished streaming response - Endpoint: POST {}, Items sent: {}, Duration: {:?}", path_clone, count, start_time.elapsed());
             });
 
