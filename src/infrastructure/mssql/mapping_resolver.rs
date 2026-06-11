@@ -134,7 +134,7 @@ impl MssqlMappingResolver {
                 resolution: first.get::<&str, _>("RESOLUTION").unwrap_or_default().to_string(),
                 switch_over: first.get::<&str, _>("SWITCHOVER").unwrap_or_default().to_string(),
                 split_query: first.get::<bool, _>("SPLIT_QUERY").unwrap_or(true),
-                timezone: first.get::<&str, _>("TIMEZONE").unwrap_or_default().to_string(),
+                timezone: first.try_get::<&str, _>("TIMEZONE").ok().flatten().unwrap_or_default().to_string(),
                 columns,
             });
         }
