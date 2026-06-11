@@ -178,7 +178,7 @@ fn map_scylla_row(
 #[async_trait]
 impl Repository for ScyllaRepository {
     async fn execute(&self, query: ExecutableQuery) -> Result<Vec<DataItem>> {
-        tracing::info!("Executing Scylla query for ID: {}", query.id);
+        tracing::info!("Executing Scylla query for ID: {}. Statement: {} with arguments: {:?}", query.id, query.statement, query.arguments);
         
         let vals = build_serialized_values(&query.arguments)?;
         let result = self.session.query(query.statement.clone(), vals).await?;
@@ -195,7 +195,7 @@ impl Repository for ScyllaRepository {
     }
 
     async fn stream(&self, query: ExecutableQuery) -> Result<Pin<Box<dyn Stream<Item = Result<DataItem>> + Send>>> {
-        tracing::info!("Streaming Scylla query for ID: {}", query.id);
+        tracing::info!("Streaming Scylla query for ID: {}. Statement: {} with arguments: {:?}", query.id, query.statement, query.arguments);
         
         let session = self.session.clone();
         let vals = build_serialized_values(&query.arguments)?;

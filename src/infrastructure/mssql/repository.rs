@@ -30,7 +30,7 @@ impl MssqlRepository {
 #[async_trait]
 impl Repository for MssqlRepository {
     async fn execute(&self, query: ExecutableQuery) -> Result<Vec<DataItem>> {
-        tracing::info!("Executing MSSQL query for ID: {}", query.id);
+        tracing::info!("Executing MSSQL query for ID: {}. Statement: {} with arguments: {:?}", query.id, query.statement, query.arguments);
 
         // 1. Acquire global connection slot
         let mut releaser = self.gate.acquire().await?;
@@ -49,7 +49,7 @@ impl Repository for MssqlRepository {
     }
 
     async fn stream(&self, query: ExecutableQuery) -> Result<Pin<Box<dyn Stream<Item = Result<DataItem>> + Send>>> {
-        tracing::info!("Streaming MSSQL query for ID: {}", query.id);
+        tracing::info!("Streaming MSSQL query for ID: {}. Statement: {} with arguments: {:?}", query.id, query.statement, query.arguments);
 
         let pool = self.pool.clone();
         let id = query.id;
