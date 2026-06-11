@@ -131,7 +131,7 @@ async fn main() {
     let validation_resolver = Arc::new(RequestValidationStrategyResolver::new(strategies));
     let stats_service = Arc::new(
         streaming_rust::infrastructure::mssql::statistics::MssqlStatisticsService::new(
-            &config.datastores.mds_sql.dsn,
+            &config.datastores.mapping_sql.dsn,
             resolver.clone(),
             config.meta.stage.clone(),
             config.execution.max_sql_connections,
