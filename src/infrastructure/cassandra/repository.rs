@@ -94,7 +94,7 @@ fn map_scylla_row(
         del_offset,
         value,
     ) = row.into_typed::<(
-        i64,
+        String,
         i16,
         i8,
         i8,
