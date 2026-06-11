@@ -22,6 +22,8 @@ struct BulkDataUniverseRequest {
     mdo_ids: Vec<Identifier>,
     #[serde(rename = "stageId")]
     stage_id: u8,
+    #[serde(rename = "internalCorrelationId")]
+    internal_correlation_id: String,
 }
 
 #[derive(Serialize)]
@@ -29,6 +31,8 @@ struct TimeSeriesRequest {
     identifiers: Vec<Identifier>,
     #[serde(rename = "stageId")]
     stage_id: u8,
+    #[serde(rename = "internalCorrelationId")]
+    internal_correlation_id: String,
 }
 
 impl HttpLicenseValidator {
@@ -52,8 +56,9 @@ impl HttpLicenseValidator {
 
 #[async_trait]
 impl LicenseValidator for HttpLicenseValidator {
-    async fn validate_read_access(&self, token: &str, ids: &[Identifier], stage: &str) -> Result<()> {
+    async fn validate_read_access(&self, token: &str, ids: &[Identifier], stage: &str, correlation_id: &str) -> Result<()> {
         if self.base_url == "NOT SET" || self.base_url.is_empty() {
+            tracing::debug!("License API base URL not set; assuming user has licenses (fail-open).");
             return Ok(());
         }
 
@@ -66,10 +71,12 @@ impl LicenseValidator for HttpLicenseValidator {
             action: "Read".to_string(),
             mdo_ids: ids.to_vec(),
             stage_id,
+            internal_correlation_id: correlation_id.to_string(),
         };
 
         let uni_resp = self.client.post(&universe_url)
             .bearer_auth(token)
+            .header("X-Correlation-ID", correlation_id)
             .json(&universe_req)
             .send().await?;
 
@@ -95,10 +102,12 @@ impl LicenseValidator for HttpLicenseValidator {
         let lic_req = TimeSeriesRequest {
             identifiers: ids.to_vec(),
             stage_id,
+            internal_correlation_id: correlation_id.to_string(),
         };
 
         let lic_resp = self.client.post(&authorize_url)
             .bearer_auth(token)
+            .header("X-Correlation-ID", correlation_id)
             .json(&lic_req)
             .send().await?;
 
@@ -116,7 +125,7 @@ pub struct NoopLicenseValidator;
 
 #[async_trait]
 impl LicenseValidator for NoopLicenseValidator {
-    async fn validate_read_access(&self, _token: &str, _ids: &[Identifier], _stage: &str) -> Result<()> {
+    async fn validate_read_access(&self, _token: &str, _ids: &[Identifier], _stage: &str, _correlation_id: &str) -> Result<()> {
         Ok(())
     }
 }

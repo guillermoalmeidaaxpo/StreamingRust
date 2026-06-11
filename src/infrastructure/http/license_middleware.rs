@@ -35,11 +35,18 @@ pub async fn license_middleware(
         return Ok(next.run(request).await);
     }
 
-    // 4. Call License API using the raw token we just validated
+    // 4. Extract Correlation ID from headers
+    let correlation_id = request.headers()
+        .get("X-Correlation-ID")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+
+    // 5. Call License API using the raw token we just validated
     state.license_validator.validate_read_access(
         &principal.raw_token,
         &ids,
-        &state.meta_config.stage
+        &state.meta_config.stage,
+        correlation_id
     ).await.map_err(|e| {
         tracing::warn!("License validation failed: {}", e);
         StatusCode::FORBIDDEN

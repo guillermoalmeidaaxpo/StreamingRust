@@ -27,7 +27,7 @@ pub trait FilterParser: Send + Sync {
 
 #[async_trait]
 pub trait LicenseValidator: Send + Sync {
-    async fn validate_read_access(&self, token: &str, ids: &[Identifier], stage: &str) -> Result<()>;
+    async fn validate_read_access(&self, token: &str, ids: &[Identifier], stage: &str, correlation_id: &str) -> Result<()>;
 }
 
 pub trait Validator: Send + Sync {
