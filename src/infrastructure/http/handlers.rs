@@ -76,8 +76,11 @@ pub async fn transactional_stream(
     tracing::info!("Starting request - Endpoint: POST {}, Payload: {:?}", path, payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
+    let setup_start = std::time::Instant::now();
     match state.pipeline.stream(ctx, payload).await {
         Ok(stream) => {
+            let setup_duration = setup_start.elapsed();
+            tracing::info!("Stream initialized - Endpoint: POST {}, Setup duration: {:?}", path, setup_duration);
             let path_clone = path.clone();
             let ndjson_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;
@@ -179,8 +182,11 @@ pub async fn generic_csv_stream(
 
     let request = payload.into_request();
 
+    let setup_start = std::time::Instant::now();
     match state.pipeline.stream(ctx, vec![request]).await {
         Ok(stream) => {
+            let setup_duration = setup_start.elapsed();
+            tracing::info!("Stream initialized - Endpoint: POST {}, Setup duration: {:?}", path, setup_duration);
             let path_clone = path.clone();
             let csv_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;
