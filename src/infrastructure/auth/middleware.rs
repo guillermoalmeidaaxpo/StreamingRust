@@ -20,20 +20,20 @@ pub struct Principal {
     pub raw_token: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct Claims {
-    sub: Option<String>,
-    roles: Option<Vec<String>>,
-    aud: Option<Vec<String>>, // aud can be string or array
-    iss: Option<String>,
-}
-
 // Custom deserializer for aud since it can be string or array in JWT
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 enum Aud {
     Single(String),
     Multiple(Vec<String>),
+}
+
+#[derive(Debug, Deserialize)]
+struct Claims {
+    sub: Option<String>,
+    roles: Option<Vec<String>>,
+    aud: Option<Aud>,
+    iss: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
