@@ -40,6 +40,7 @@ impl CassandraQueryBuilder {
 
             let mut parameters = HashMap::new();
             parameters.insert("projection_columns".to_string(), serde_json::to_value(self.cassandra_projection_columns(&command.columns)).unwrap());
+            parameters.insert("include_offset".to_string(), serde_json::Value::Bool(command.include_offset));
 
             queries.push(ExecutableQuery {
                 id: mapping.id,

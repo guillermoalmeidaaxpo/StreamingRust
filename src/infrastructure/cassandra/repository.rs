@@ -9,6 +9,8 @@ use scylla::{Session, SessionBuilder};
 use async_stream::try_stream;
 use futures::StreamExt;
 use std::collections::HashMap;
+use chrono::{TimeZone, Utc};
+use scylla::frame::value::SerializedValues;
 
 pub struct ScyllaRepository {
     session: Arc<Session>,
@@ -28,24 +30,163 @@ impl ScyllaRepository {
     }
 }
 
+fn build_serialized_values(args: &[serde_json::Value]) -> anyhow::Result<SerializedValues> {
+    let mut vals = SerializedValues::new();
+    for (i, val) in args.iter().enumerate() {
+        if i == 0 {
+            if let Some(s) = val.as_str() {
+                vals.add_value(&s).map_err(|e| anyhow::anyhow!("Scylla serialization error: {:?}", e))?;
+            } else {
+                vals.add_value(&"").map_err(|e| anyhow::anyhow!("Scylla serialization error: {:?}", e))?;
+            }
+        } else if i == 1 {
+            let mut list = Vec::new();
+            if let Some(arr) = val.as_array() {
+                for item in arr {
+                    if let Some(n) = item.as_i64() {
+                        list.push(n as i32);
+                    }
+                }
+            }
+            vals.add_value(&list).map_err(|e| anyhow::anyhow!("Scylla serialization error: {:?}", e))?;
+        } else {
+            let offset = i - 2;
+            match offset % 4 {
+                0 => {
+                    let n = val.as_i64().unwrap_or(1) as i16;
+                    vals.add_value(&n).map_err(|e| anyhow::anyhow!("Scylla serialization error: {:?}", e))?;
+                }
+                1 => {
+                    let n = val.as_i64().unwrap_or(1) as i8;
+                    vals.add_value(&n).map_err(|e| anyhow::anyhow!("Scylla serialization error: {:?}", e))?;
+                }
+                2 => {
+                    let n = val.as_i64().unwrap_or(1) as i8;
+                    vals.add_value(&n).map_err(|e| anyhow::anyhow!("Scylla serialization error: {:?}", e))?;
+                }
+                _ => {
+                    let n = val.as_i64().unwrap_or(0) as i8;
+                    vals.add_value(&n).map_err(|e| anyhow::anyhow!("Scylla serialization error: {:?}", e))?;
+                }
+            }
+        }
+    }
+    Ok(vals)
+}
+
+fn map_scylla_row(
+    row: scylla::frame::response::result::Row,
+    query: &ExecutableQuery,
+) -> anyhow::Result<DataItem> {
+    let id = query.id;
+    let (
+        _ts_id,
+        qte_y,
+        qte_m,
+        qte_d,
+        _quote_index,
+        _publish_time,
+        del_y,
+        del_m,
+        del_d,
+        del_h,
+        del_min,
+        del_offset,
+        value,
+    ) = row.into_typed::<(
+        i64,
+        i16,
+        i8,
+        i8,
+        i32,
+        Option<chrono::DateTime<Utc>>,
+        i16,
+        i8,
+        i8,
+        i8,
+        i8,
+        i8,
+        f64,
+    )>().map_err(|e| anyhow::anyhow!("Failed to decode Scylla row: {:?}", e))?;
+
+    let ref_time = chrono::Utc.with_ymd_and_hms(
+        qte_y as i32,
+        qte_m as u32,
+        qte_d as u32,
+        0, 0, 0
+    ).unwrap();
+    let ref_time_str = ref_time.format("%Y-%m-%dT%H:%M:%S.000").to_string();
+
+    let offset_secs = (del_offset as i32) * 3600;
+    let offset = chrono::FixedOffset::east_opt(offset_secs).unwrap();
+    
+    let del_start_naive = chrono::NaiveDate::from_ymd_opt(
+        del_y as i32,
+        del_m as u32,
+        del_d as u32,
+    ).unwrap().and_hms_opt(
+        del_h as u32,
+        del_min as u32,
+        0,
+    ).unwrap();
+    
+    let del_start = chrono::DateTime::<chrono::FixedOffset>::from_naive_utc_and_offset(del_start_naive - chrono::Duration::seconds(offset_secs as i64), offset);
+    
+    let include_offset = query.parameters.get("include_offset").and_then(|v| v.as_bool()).unwrap_or(false);
+    let del_start_str = if include_offset {
+        del_start.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string()
+    } else {
+        del_start.format("%Y-%m-%dT%H:%M:%S.000").to_string()
+    };
+
+    let del_end = del_start + chrono::Duration::hours(1);
+    let del_end_str = if include_offset {
+        del_end.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string()
+    } else {
+        del_end.format("%Y-%m-%dT%H:%M:%S.000").to_string()
+    };
+
+    let value_rounded = (value * 1e10).round() / 1e10;
+
+    let mut fields = HashMap::new();
+    fields.insert("Identifier".to_string(), serde_json::Value::Number(id.into()));
+    fields.insert("ReferenceTime".to_string(), serde_json::Value::String(ref_time_str));
+    fields.insert("DeliveryStart".to_string(), serde_json::Value::String(del_start_str));
+    fields.insert("DeliveryEnd".to_string(), serde_json::Value::String(del_end_str));
+    fields.insert("Value".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(value_rounded).unwrap()));
+    fields.insert("LegacyDeliveryBucketNumber".to_string(), serde_json::Value::Null);
+
+    let mut projected_fields = HashMap::new();
+    if let Some(serde_json::Value::Array(cols)) = query.parameters.get("projection_columns") {
+        for col_val in cols {
+            if let Some(col) = col_val.as_str() {
+                if let Some(v) = fields.get(col) {
+                    projected_fields.insert(col.to_string(), v.clone());
+                }
+            }
+        }
+    } else {
+        projected_fields = fields;
+    }
+
+    Ok(DataItem {
+        id,
+        fields: projected_fields,
+    })
+}
+
 #[async_trait]
 impl Repository for ScyllaRepository {
     async fn execute(&self, query: ExecutableQuery) -> Result<Vec<DataItem>> {
         tracing::info!("Executing Scylla query for ID: {}", query.id);
         
-        // In a real implementation, we would build the CQL statement here
-        // or use the one provided in query.statement if it's already built.
-        let result = self.session.query(query.statement, &[]).await?;
+        let vals = build_serialized_values(&query.arguments)?;
+        let result = self.session.query(query.statement, vals).await?;
         
         let mut items = Vec::new();
         if let Some(rows) = result.rows {
-            for _row in rows {
-                // Mapping Scylla row to DataItem
-                // This is a simplified mapping for demonstration
-                let item = DataItem {
-                    id: query.id,
-                    fields: HashMap::new(), // Populate from row
-                };
+            for row in rows {
+                let item = map_scylla_row(row, &query)?;
                 items.push(item);
             }
         }
@@ -57,17 +198,14 @@ impl Repository for ScyllaRepository {
         tracing::info!("Streaming Scylla query for ID: {}", query.id);
         
         let session = self.session.clone();
-        let id = query.id;
+        let vals = build_serialized_values(&query.arguments)?;
 
         let stream = try_stream! {
-            let mut pager = session.query_iter(query.statement, &[]).await?;
+            let mut pager = session.query_iter(query.statement, vals).await?;
             while let Some(row_result) = pager.next().await {
-                let _row = row_result?;
-                // Map row to DataItem
-                yield DataItem {
-                    id,
-                    fields: HashMap::new(),
-                };
+                let row = row_result?;
+                let item = map_scylla_row(row, &query)?;
+                yield item;
             }
         };
         
