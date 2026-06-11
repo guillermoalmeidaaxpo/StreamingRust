@@ -43,18 +43,23 @@ pub struct AuthorizationApiConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct SqlConfig {
+    pub dsn: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct DatastoresConfig {
-    pub cmdp_sql: String,
-    pub mapping_sql: String,
-    pub mds_sql: String,
-    pub mesap_mapping_sql: Option<String>,
+    pub cmdp_sql: SqlConfig,
+    pub mapping_sql: SqlConfig,
+    pub mds_sql: SqlConfig,
+    pub mesap_mapping_sql: Option<SqlConfig>,
     pub redis: RedisConfig,
     pub cassandra: CassandraConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CassandraConfig {
-    pub hosts: Vec<String>,
+    pub data_centers: std::collections::HashMap<String, Vec<String>>,
     pub keyspace: String,
     pub port: u16,
     pub max_parallel_queries: usize,
@@ -95,9 +100,16 @@ pub struct ExecutionConfig {
 
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
+        let env = std::env::var("OUTBOUND_ENV").unwrap_or_else(|_| "development".to_string()).to_lowercase();
+        let config_dir = std::env::var("OUTBOUND_CONFIG_DIR").unwrap_or_else(|_| "configs".to_string());
+
+        let default_path = format!("{}/default.yaml", config_dir);
+        let env_path = format!("{}/{}.yaml", config_dir, env);
+
         let s = Config::builder()
-            .add_source(File::with_name("configs/default").required(false))
-            .add_source(Environment::with_prefix("OUTBOUND"))
+            .add_source(File::with_name(&default_path).required(false))
+            .add_source(File::with_name(&env_path).required(false))
+            .add_source(Environment::with_prefix("OUTBOUND").separator("__"))
             .build()?;
 
         s.try_deserialize()

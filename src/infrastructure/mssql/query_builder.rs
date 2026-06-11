@@ -27,7 +27,7 @@ impl CMDPQueryBuilder {
                 continue;
             }
 
-            let (statement, parameters) = self.build_cmdp_statement(mapping, &command.filters, &command.index_range, &command.columns)?;
+            let (statement, parameters) = self.build_cmdp_statement(mapping, command)?;
             queries.push(ExecutableQuery {
                 id: mapping.id,
                 data_category: self.data_category_for_query(command.data_category, mapping),
@@ -50,9 +50,7 @@ impl CMDPQueryBuilder {
     fn build_cmdp_statement(
         &self,
         mapping: &Mapping,
-        filters: &FilterSet,
-        index_range: &Option<crate::domain::query::IndexRange>,
-        requested_columns: &[String],
+        command: &Command,
     ) -> Result<(String, HashMap<String, serde_json::Value>)> {
         if mapping.view_name.trim().is_empty() {
             return Err(anyhow!("mapping {} has no CMDP view name", mapping.id));
@@ -63,10 +61,10 @@ impl CMDPQueryBuilder {
 
         let mut where_clauses = vec![format!("{} = @id", qualify(CMDP_IDENTIFIER_COLUMN))];
         
-        let filter_predicates = builder.filter_predicates(&filters.nodes)?;
+        let filter_predicates = builder.filter_predicates(&command.filters.nodes)?;
         where_clauses.extend(filter_predicates);
 
-        if let Some(range) = index_range {
+        if let Some(range) = &command.index_range {
             if !mapping.index_field.trim().is_empty() {
                 builder.add_parameter("indexStart", serde_json::Value::Number(range.start.into()));
                 builder.add_parameter("indexEnd", serde_json::Value::Number(range.end.into()));
@@ -75,15 +73,77 @@ impl CMDPQueryBuilder {
             }
         }
 
+        // Add Shape Predicates
+        let delivery_start_column = mapping.columns.iter()
+            .find(|c| c.mds_name.eq_ignore_ascii_case("DeliveryStart") || c.source_name.eq_ignore_ascii_case("DeliveryStart"))
+            .map(|c| c.source_name.as_str())
+            .unwrap_or("DeliveryStart");
+
+        let delivery_start_expr = if command.filter_time_zone.is_empty() || command.filter_time_zone.eq_ignore_ascii_case("UTC") {
+            qualify(delivery_start_column)
+        } else {
+            let sql_tz = to_sql_server_timezone_name(&command.filter_time_zone);
+            format!("{} AT TIME ZONE '{}'", qualify(delivery_start_column), sql_tz)
+        };
+
+        if let Some(shape) = &command.shape {
+            // 1. Month Predicate
+            if !shape.months.is_empty() && shape.months.len() != 12 {
+                let mut month_params = Vec::new();
+                for (i, &month) in shape.months.iter().enumerate() {
+                    let p_name = format!("month{}", i);
+                    builder.add_parameter(&p_name, serde_json::Value::Number(month.into()));
+                    month_params.push(format!("@{}", p_name));
+                }
+                let in_list = month_params.join(", ");
+                where_clauses.push(format!("DATEPART(MONTH, {}) IN ({})", delivery_start_expr, in_list));
+            }
+
+            // 2. Day Predicate
+            if !shape.days.is_empty() && shape.days.len() != 7 {
+                let mut day_params = Vec::new();
+                for (i, &day) in shape.days.iter().enumerate() {
+                    let p_name = format!("day{}", i);
+                    builder.add_parameter(&p_name, serde_json::Value::Number(day.into()));
+                    day_params.push(format!("@{}", p_name));
+                }
+                let in_list = day_params.join(", ");
+                where_clauses.push(format!("((DATEDIFF(DAY, '19000101', {}) % 7) + 1) IN ({})", delivery_start_expr, in_list));
+            }
+
+            // 3. Time Predicate
+            if !shape.time_spans.is_empty() && !is_full_day_coverage(&shape.time_spans) {
+                let mut fragments = Vec::new();
+                for (i, span) in shape.time_spans.iter().enumerate() {
+                    let start_name = format!("t{}_start", i);
+                    let end_name = format!("t{}_end", i);
+
+                    let start_str = format_duration_as_time(span.start);
+                    builder.add_parameter(&start_name, serde_json::Value::String(start_str));
+
+                    if span.end.is_zero() {
+                        fragments.push(format!("(CAST({} AS time) >= @{})", delivery_start_expr, start_name));
+                    } else {
+                        let end_str = format_duration_as_time(span.end);
+                        builder.add_parameter(&end_name, serde_json::Value::String(end_str));
+                        fragments.push(format!("(CAST({} AS time) >= @{} AND CAST({} AS time) < @{})", delivery_start_expr, start_name, end_name));
+                    }
+                }
+                if !fragments.is_empty() {
+                    where_clauses.push(format!("({})", fragments.join(" OR ")));
+                }
+            }
+        }
+
         let mut rank_over_filter = None;
-        for node in &filters.nodes {
+        for node in &command.filters.nodes {
             if let FilterNode::RankOver(r) = node {
                 rank_over_filter = Some(r);
                 break;
             }
         }
 
-        let selected = select_columns(&mapping.columns, requested_columns);
+        let selected = select_columns(&mapping.columns, &command.columns);
         
         let statement = if let Some(rank_filter) = rank_over_filter {
             // Subquery for RankOver
@@ -365,4 +425,77 @@ fn hyperscale_select_columns(_columns: &[ColumnMapping], _requested_columns: &[S
 
 fn hyperscale_order_columns(_columns: &[ColumnMapping], _value_column: &str, _include_identifier: bool) -> Vec<String> {
     vec![]
+}
+
+fn to_sql_server_timezone_name(tz: &str) -> String {
+    if let Some(mapped) = map_timezone_abbreviation(tz) {
+        return mapped.to_string();
+    }
+    match tz.to_lowercase().as_str() {
+        "europe/zurich" => "Central European Standard Time".to_string(),
+        "europe/london" => "GMT Standard Time".to_string(),
+        "europe/paris" => "Romance Standard Time".to_string(),
+        "europe/berlin" => "W. Europe Standard Time".to_string(),
+        "america/new_york" => "Eastern Standard Time".to_string(),
+        "america/chicago" => "Central Standard Time".to_string(),
+        "asia/tokyo" => "Tokyo Standard Time".to_string(),
+        _ => tz.to_string(),
+    }
+}
+
+fn map_timezone_abbreviation(tz: &str) -> Option<&'static str> {
+    match tz.to_uppercase().as_str() {
+        "GMT" | "WET" | "WEST" | "BST" => Some("GMT Standard Time"),
+        "CET" | "CEST" => Some("Central European Standard Time"),
+        "MET" => Some("W. Europe Standard Time"),
+        "EET" | "EEST" => Some("E. Europe Standard Time"),
+        "FET" => Some("Belarus Standard Time"),
+        "MSK" => Some("Russian Standard Time"),
+        "TRT" => Some("Turkey Standard Time"),
+        "EST" | "EDT" => Some("Eastern Standard Time"),
+        "CST" | "CDT" => Some("Central Standard Time"),
+        "MST" | "MDT" => Some("Mountain Standard Time"),
+        "PST" | "PDT" => Some("Pacific Standard Time"),
+        "AST" | "ADT" => Some("Atlantic Standard Time"),
+        "NST" | "NDT" => Some("Newfoundland Standard Time"),
+        "AKT" => Some("Alaskan Standard Time"),
+        "HST" => Some("Hawaiian Standard Time"),
+        "BRT" => Some("E. South America Standard Time"),
+        "ART" => Some("Argentina Standard Time"),
+        "IST" => Some("India Standard Time"),
+        "PKT" => Some("Pakistan Standard Time"),
+        "ICT" | "WIB" => Some("SE Asia Standard Time"),
+        "SGT" => Some("Singapore Standard Time"),
+        "HKT" | "CST8" => Some("China Standard Time"),
+        "JST" => Some("Tokyo Standard Time"),
+        "KST" => Some("Korea Standard Time"),
+        "AEST" | "AEDT" => Some("AUS Eastern Standard Time"),
+        "ACST" => Some("Cen. Australia Standard Time"),
+        "AWST" => Some("W. Australia Standard Time"),
+        "NZST" | "NZDT" => Some("New Zealand Standard Time"),
+        "EAT" => Some("E. Africa Standard Time"),
+        "CAT" | "SAST" => Some("South Africa Standard Time"),
+        "WAT" => Some("W. Central Africa Standard Time"),
+        "AST3" => Some("Arab Standard Time"),
+        "GST" => Some("Arabian Standard Time"),
+        "IDT" => Some("Israel Standard Time"),
+        _ => None,
+    }
+}
+
+fn is_full_day_coverage(spans: &[crate::domain::request::NormalizedTimeSpan]) -> bool {
+    if spans.len() != 1 {
+        return false;
+    }
+    let span = &spans[0];
+    span.start.is_zero() && 
+        (span.end == chrono::Duration::hours(24) || span.end.is_zero())
+}
+
+fn format_duration_as_time(d: chrono::Duration) -> String {
+    let secs = d.num_seconds();
+    let hours = secs / 3600;
+    let mins = (secs % 3600) / 60;
+    let secs = secs % 60;
+    format!("{:02}:{:02}:{:02}", hours, mins, secs)
 }

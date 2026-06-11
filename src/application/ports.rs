@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use crate::domain::{Identifier, DataItem, FilterSet, SourceKind, DataCategory, ExecutableQuery, Mapping, Request};
+use crate::domain::{Identifier, DataItem, FilterSet, SourceKind, DataCategory, ExecutableQuery, Mapping, Request, request::NormalizedShape};
 use anyhow::Result;
 use futures::Stream;
 use std::pin::Pin;
@@ -64,6 +64,7 @@ pub struct Command {
     pub target_time_zone: String,
     pub has_aggregations: bool,
     pub has_shape: bool,
+    pub shape: Option<NormalizedShape>,
     pub filters: FilterSet,
     pub mappings: Vec<Mapping>,
     pub source: SourceKind,

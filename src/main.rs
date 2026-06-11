@@ -55,10 +55,17 @@ async fn main() {
 
     // 1. Initialize Adapters
     let parser = Arc::new(AntlrFilterParser::new());
-    let resolver = Arc::new(MssqlMappingResolver::new(&config.datastores.mapping_sql, &config.datastores.mds_sql).await.expect("Failed to initialize mapping resolver"));
+    let resolver = Arc::new(MssqlMappingResolver::new(&config.datastores.mapping_sql.dsn, &config.datastores.mds_sql.dsn).await.expect("Failed to initialize mapping resolver"));
     
-    let cmdp_repo = Arc::new(MssqlRepository::new(&config.datastores.cmdp_sql, gate).await.expect("Failed to initialize MSSQL repository"));
-    let scylla_repo = Arc::new(ScyllaRepository::new(&config.datastores.cassandra.hosts, &config.datastores.cassandra.keyspace).await.expect("Failed to initialize Scylla repository"));
+    let cmdp_repo = Arc::new(MssqlRepository::new(&config.datastores.cmdp_sql.dsn, gate).await.expect("Failed to initialize MSSQL repository"));
+    
+    let mut cassandra_hosts: Vec<String> = config.datastores.cassandra.data_centers.values()
+        .flat_map(|v| v.clone())
+        .collect();
+    if cassandra_hosts.is_empty() {
+        cassandra_hosts.push("localhost".to_string());
+    }
+    let scylla_repo = Arc::new(ScyllaRepository::new(&cassandra_hosts, &config.datastores.cassandra.keyspace).await.expect("Failed to initialize Scylla repository"));
     
     let mut repositories: HashMap<SourceKind, Arc<dyn streaming_rust::application::ports::Repository>> = HashMap::new();
     repositories.insert(SourceKind::Cmdp, cmdp_repo.clone());

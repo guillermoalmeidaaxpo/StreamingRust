@@ -99,7 +99,15 @@ impl Planner for DefaultPlanner {
             for mapping in mappings {
                 let has_aggregations = request.transformations.as_ref().map(|t| t.keys.is_some()).unwrap_or(false);
                 let has_shape = request.filters.as_ref().map(|f| f.shape.is_some()).unwrap_or(false);
+
+                if has_shape && mapping.hyperscale_id.is_some() {
+                    return Err(anyhow!("The Shape filter cannot be used with this Identifier. Data is not hosted in CMDP"));
+                }
+
                 let source = StrategySelector::select_source(&mapping, has_aggregations, has_shape, ctx.is_mesap_endpoint);
+                let shape = request.filters.as_ref()
+                    .and_then(|f| f.shape.as_ref())
+                    .map(|s| s.normalize());
 
                 let mut command = Command {
                     ids: vec![mapping.id],
@@ -113,6 +121,7 @@ impl Planner for DefaultPlanner {
                     target_time_zone: request.transformations.as_ref().and_then(|t| t.target_time_zone.clone()).unwrap_or_default(),
                     has_aggregations,
                     has_shape,
+                    shape,
                     filters: runtime_filters.clone(),
                     mappings: vec![mapping.clone()],
                     source,
