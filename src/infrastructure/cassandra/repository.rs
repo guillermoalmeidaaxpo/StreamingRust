@@ -10,7 +10,7 @@ use async_stream::try_stream;
 use futures::StreamExt;
 use std::collections::HashMap;
 use chrono::{TimeZone, Utc};
-use scylla::frame::value::SerializedValues;
+use scylla::frame::value::LegacySerializedValues as SerializedValues;
 
 pub struct ScyllaRepository {
     session: Arc<Session>,
