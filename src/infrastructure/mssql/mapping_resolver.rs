@@ -448,6 +448,14 @@ impl MssqlMappingResolver {
         query.bind(false);
         query.bind(mapping.view_name.as_str());
 
+        tracing::info!(
+            "Executing [MDS].[CalculateMinMaxReferenceTimeDeliveryStart] with parameters: \
+             @Id = {}, @referenceTimeIndexedFieldName = '{}', @referenceTimeFieldName = '{}', \
+             @deliveryStartFieldName = '{}', @getMinReferenceTime = true, @getMaxReferenceTime = true, \
+             @getMinMaxDeliveryStart = false, @schemaQualifiedViewName = '{}'",
+            mdo_id, mapping.index_field, ref_col, del_col, mapping.view_name
+        );
+
         let stream = query.query(&mut client).await?;
         let row_opt = stream.into_row().await?;
 
@@ -511,6 +519,13 @@ impl MssqlMappingResolver {
         
         let fixed_dt = reference_time.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
         query.bind(fixed_dt);
+
+        tracing::info!(
+            "Executing [MDS].[GetMaxReferenceTimeBefore] with parameters: \
+             @Id = {}, @referenceTimeIndexedFieldName = '{}', @referenceTimeFieldName = '{}', \
+             @schemaQualifiedViewName = '{}', @comparisonOperator = '{}', @inputReferenceTime = '{}'",
+            mdo_id, mapping.index_field, ref_col, mapping.view_name, comparison_operator, fixed_dt
+        );
 
         let stream = query.query(&mut client).await?;
         let row_opt = stream.into_row().await?;
