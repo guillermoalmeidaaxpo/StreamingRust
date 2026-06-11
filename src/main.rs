@@ -26,7 +26,12 @@ use fred::interfaces::ClientLike;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+        )
+        .init();
 
     // 0. Load Configuration
     let config = AppConfig::load().expect("Failed to load configuration");
