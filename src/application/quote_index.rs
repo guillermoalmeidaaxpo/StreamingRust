@@ -12,12 +12,14 @@ pub struct FilterLimits {
 
 impl QuoteIndexGenerator {
     pub fn generate_cassandra_indices(filters: &FilterSet, limits: &FilterLimits, time_zone_mdo: &str) -> Vec<i32> {
-        let range = Self::calculate_cassandra_date_range(filters, limits, time_zone_mdo);
+        let tz = if time_zone_mdo.is_empty() || time_zone_mdo.eq_ignore_ascii_case("CET") { "Europe/Zurich" } else { time_zone_mdo };
+        let range = Self::calculate_cassandra_date_range(filters, limits, tz);
         Self::to_quote_indices(range.0, range.1, true)
     }
 
-    pub fn generate_cmdp_indices(filters: &FilterSet, limits: &FilterLimits) -> Vec<i32> {
-        let range = Self::calculate_cmdp_date_range(filters, limits);
+    pub fn generate_cmdp_indices(filters: &FilterSet, limits: &FilterLimits, tz_id: &str) -> Vec<i32> {
+        let tz = if tz_id.is_empty() || tz_id.eq_ignore_ascii_case("CET") { "Europe/Zurich" } else { tz_id };
+        let range = Self::calculate_cmdp_date_range(filters, limits, tz);
         if let Some((start, end)) = range {
             Self::to_quote_indices(Some(start), Some(end), false)
         } else {
@@ -32,8 +34,7 @@ impl QuoteIndexGenerator {
         for node in &filters.nodes {
             if let FilterNode::Comparison(f) = node {
                 if f.field.to_lowercase() == "referencetime" {
-                    if let Ok(utc_dt) = DateTime::parse_from_rfc3339(&f.value.raw) {
-                        let utc_dt = utc_dt.with_timezone(&Utc);
+                    if let Ok(utc_dt) = crate::domain::timeexpr::point_in_time::parse_point_in_time(&f.value.raw, time_zone_mdo) {
                         let (local_dt, is_midnight) = Self::get_local_dt_and_midnight(utc_dt, time_zone_mdo);
                         let local_date = Self::truncate_to_date(local_dt, time_zone_mdo);
 
@@ -71,7 +72,7 @@ impl QuoteIndexGenerator {
         (start_date, end_date)
     }
 
-    fn calculate_cmdp_date_range(filters: &FilterSet, limits: &FilterLimits) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    fn calculate_cmdp_date_range(filters: &FilterSet, limits: &FilterLimits, tz_id: &str) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
         let mut start_date: Option<DateTime<Utc>> = None;
         let mut end_date: Option<DateTime<Utc>> = None;
         let mut original_start_date: Option<DateTime<Utc>> = None;
@@ -81,7 +82,7 @@ impl QuoteIndexGenerator {
         for node in &filters.nodes {
             if let FilterNode::Comparison(f) = node {
                 if f.field.to_lowercase() == "referencetime" {
-                    if let Ok(reference_time) = DateTime::parse_from_rfc3339(&f.value.raw) {
+                    if let Ok(reference_time) = crate::domain::timeexpr::point_in_time::parse_point_in_time(&f.value.raw, tz_id) {
                         let reference_time = reference_time.with_timezone(&Utc);
 
                         match f.operator.as_str() {

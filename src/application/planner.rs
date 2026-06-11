@@ -133,7 +133,7 @@ impl Planner for DefaultPlanner {
                 let limits = self.resolver.get_filter_limits(&[mapping.id], ctx.data_category).await?;
                 command.quote_indices = match source {
                     SourceKind::Cassandra => QuoteIndexGenerator::generate_cassandra_indices(&command.filters, &limits, &command.filter_time_zone),
-                    _ => QuoteIndexGenerator::generate_cmdp_indices(&command.filters, &limits),
+                    _ => QuoteIndexGenerator::generate_cmdp_indices(&command.filters, &limits, &command.filter_time_zone),
                 };
 
                 let hybrid_commands = self.split_hybrid_command(&ctx, command).await?;
