@@ -4,7 +4,6 @@ use crate::domain::{DataItem, ExecutableQuery};
 use anyhow::Result;
 use futures::Stream;
 use std::pin::Pin;
-use tiberius::Config;
 use bb8_tiberius::ConnectionManager;
 use bb8::Pool;
 use async_stream::try_stream;

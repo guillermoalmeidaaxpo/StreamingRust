@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use crate::application::ports::MappingResolver;
 use crate::domain::{Identifier, DataCategory, Mapping, SourceKind, MappingViews, ColumnMapping};
 use anyhow::{Result, anyhow};
-use tiberius::{Config, Query, Row};
+use tiberius::{Query, Row};
 use bb8_tiberius::ConnectionManager;
 use bb8::Pool;
 

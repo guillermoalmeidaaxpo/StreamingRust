@@ -12,7 +12,8 @@ pub async fn get_mssql_config(connection_string: &str) -> anyhow::Result<tiberiu
 
     if connection_string.contains("ActiveDirectoryDefault") || connection_string.contains("fedauth") {
         tracing::info!("Azure Active Directory Authentication detected. Fetching access token...");
-        let credential = DefaultAzureCredential::default();
+        let credential = DefaultAzureCredential::create(Default::default())
+            .map_err(|e| anyhow::anyhow!("Failed to create DefaultAzureCredential: {}", e))?;
         let token_res = credential
             .get_token(&["https://database.windows.net/.default"])
             .await
