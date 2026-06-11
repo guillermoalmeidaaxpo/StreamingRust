@@ -101,7 +101,7 @@ impl Planner for DefaultPlanner {
                 let has_shape = request.filters.as_ref().map(|f| f.shape.is_some()).unwrap_or(false);
 
                 if has_shape && mapping.hyperscale_id.is_some() {
-                    return Err(anyhow!("The Shape filter cannot be used with this Identifier. Data is not hosted in CMDP"));
+                    return Err(anyhow::anyhow!("The Shape filter cannot be used with this Identifier. Data is not hosted in CMDP"));
                 }
 
                 let source = StrategySelector::select_source(&mapping, has_aggregations, has_shape, ctx.is_mesap_endpoint);

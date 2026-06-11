@@ -126,7 +126,7 @@ impl CMDPQueryBuilder {
                     } else {
                         let end_str = format_duration_as_time(span.end);
                         builder.add_parameter(&end_name, serde_json::Value::String(end_str));
-                        fragments.push(format!("(CAST({} AS time) >= @{} AND CAST({} AS time) < @{})", delivery_start_expr, start_name, end_name));
+                        fragments.push(format!("(CAST({0} AS time) >= @{1} AND CAST({0} AS time) < @{2})", delivery_start_expr, start_name, end_name));
                     }
                 }
                 if !fragments.is_empty() {

@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use regex::Regex;
 use std::sync::Arc;
 use crate::application::ports::{Validator, RequestValidationStrategy, StatisticsService, FilterParser};
-use crate::domain::{Request, DataCategory, request::{VALID_MONTHS, VALID_DAYS, Shape, TimeRange}};
+use crate::domain::{Request, DataCategory, request::{VALID_MONTHS, VALID_DAYS, Shape}};
 use chrono::{NaiveTime, Timelike};
 
 pub struct RequestValidationStrategyResolver {
