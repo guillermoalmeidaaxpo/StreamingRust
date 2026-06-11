@@ -112,6 +112,7 @@ Request payloads from legacy clients often contain mixed casing (camelCase, Pasc
 ### 6.5 Dynamic Endpoint Context & Environment-Aware Logging
 - **Dynamic Context Resolution**: Refactored the core transactional and generic endpoint handlers in [handlers.rs](file:///C:/Projects/StreamingRust/src/infrastructure/http/handlers.rs) to dynamically resolve the request context (stage, data category, mesap flags) using the Axum `Uri` extractor rather than hardcoding static settings.
 - **Local vs. AKS Logging**: Configured `tracing-subscriber` in [main.rs](file:///C:/Projects/StreamingRust/src/main.rs) to automatically output pretty-printed, colored logs for local developer workstations, and switch to flat, single-line structured JSON logs when running in AKS containers (detected via `OUTBOUND_ENV` or `LOG_FORMAT=json`). This ensures compatibility with automated cloud logging agents (Fluentbit, Azure Monitor) without compromising local developer experience.
+- **OpenTelemetry OTLP Integration**: Configured `tracing-opentelemetry` in [main.rs](file:///C:/Projects/StreamingRust/src/main.rs) to automatically export distributed traces via gRPC/OTLP whenever the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable is defined. This allows direct trace ingestion into Azure Application Insights via the OpenTelemetry Collector DaemonSet in AKS without vendor-specific SDK lock-in.
 
 ---
 

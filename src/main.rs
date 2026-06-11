@@ -11,6 +11,7 @@ use streaming_rust::infrastructure::cassandra::repository::ScyllaRepository;
 use streaming_rust::infrastructure::http::router::{create_router, AppState};
 use streaming_rust::infrastructure::config::AppConfig;
 use async_trait::async_trait;
+use tracing_subscriber::prelude::*;
 
 struct MockStatsService;
 #[async_trait]
@@ -36,17 +37,44 @@ async fn main() {
             l == "production" || l == "productive" || l == "validation" || l == "migration"
         }).unwrap_or(false);
 
-    if is_json {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
+    // Create the formatting layer
+    let fmt_layer = if is_json {
+        tracing_subscriber::fmt::layer()
             .json()
             .flatten_event(true)
-            .init();
+            .boxed()
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
+        tracing_subscriber::fmt::layer()
             .with_ansi(true)
-            .init();
+            .boxed()
+    };
+
+    let registry = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer);
+
+    // Optional OpenTelemetry (OTLP) layer, active if OTLP endpoint is set (standard for AKS App Insights)
+    let otel_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .unwrap_or_else(|_| "NOT SET".to_string());
+
+    if otel_endpoint != "NOT SET" && !otel_endpoint.is_empty() {
+        use opentelemetry_otlp::WithExportConfig;
+        
+        let tracer = opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_exporter(
+                opentelemetry_otlp::new_exporter()
+                    .tonic()
+                    .with_endpoint(otel_endpoint.clone()),
+            )
+            .install_batch(opentelemetry_sdk::runtime::Tokio)
+            .expect("Failed to initialize OpenTelemetry OTLP tracer");
+
+        let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+        registry.with(telemetry_layer).init();
+        tracing::info!("OpenTelemetry tracing enabled via OTLP endpoint: {}", otel_endpoint);
+    } else {
+        registry.init();
     }
 
     // 0. Load Configuration
