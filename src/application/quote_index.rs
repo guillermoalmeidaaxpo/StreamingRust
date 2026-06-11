@@ -14,14 +14,14 @@ impl QuoteIndexGenerator {
     pub fn generate_cassandra_indices(filters: &FilterSet, limits: &FilterLimits, time_zone_mdo: &str) -> Vec<i32> {
         let tz = if time_zone_mdo.is_empty() || time_zone_mdo.eq_ignore_ascii_case("CET") { "Europe/Zurich" } else { time_zone_mdo };
         let range = Self::calculate_cassandra_date_range(filters, limits, tz);
-        Self::to_quote_indices(range.0, range.1, true)
+        Self::to_quote_indices(range.0, range.1, true, tz)
     }
 
     pub fn generate_cmdp_indices(filters: &FilterSet, limits: &FilterLimits, tz_id: &str) -> Vec<i32> {
         let tz = if tz_id.is_empty() || tz_id.eq_ignore_ascii_case("CET") { "Europe/Zurich" } else { tz_id };
         let range = Self::calculate_cmdp_date_range(filters, limits, tz);
         if let Some((start, end)) = range {
-            Self::to_quote_indices(Some(start), Some(end), false)
+            Self::to_quote_indices(Some(start), Some(end), false, tz)
         } else {
             vec![]
         }
@@ -181,7 +181,7 @@ impl QuoteIndexGenerator {
         Some(Utc.with_ymd_and_hms(utc_candidate.year(), utc_candidate.month(), utc_candidate.day(), 0, 0, 0).single().unwrap())
     }
 
-    fn to_quote_indices(start: Option<DateTime<Utc>>, end: Option<DateTime<Utc>>, inclusive: bool) -> Vec<i32> {
+    fn to_quote_indices(start: Option<DateTime<Utc>>, end: Option<DateTime<Utc>>, inclusive: bool, tz_id: &str) -> Vec<i32> {
         if start.is_none() && end.is_none() {
             return vec![];
         }
@@ -191,7 +191,7 @@ impl QuoteIndexGenerator {
         let adjusted_end = end.unwrap_or_else(|| if start >= now { start } else { now });
 
         if start == adjusted_end {
-            return vec![Self::format_date_as_index(start)];
+            return vec![Self::format_date_as_index(start, tz_id)];
         }
 
         if start > adjusted_end {
@@ -201,13 +201,15 @@ impl QuoteIndexGenerator {
         let mut indices = Vec::new();
         let mut current = start;
         while if inclusive { current <= adjusted_end } else { current < adjusted_end } {
-            indices.push(Self::format_date_as_index(current));
+            indices.push(Self::format_date_as_index(current, tz_id));
             current = current + Duration::days(1);
         }
         indices
     }
 
-    fn format_date_as_index(dt: DateTime<Utc>) -> i32 {
-        dt.year() * 10000 + (dt.month() as i32) * 100 + dt.day() as i32
+    fn format_date_as_index(dt: DateTime<Utc>, tz_id: &str) -> i32 {
+        let tz: Tz = tz_id.parse().unwrap_or(chrono_tz::UTC);
+        let local_dt = dt.with_timezone(&tz);
+        local_dt.year() * 10000 + (local_dt.month() as i32) * 100 + local_dt.day() as i32
     }
 }
