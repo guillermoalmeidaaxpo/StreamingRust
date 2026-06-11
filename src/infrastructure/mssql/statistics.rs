@@ -69,37 +69,23 @@ impl MssqlStatisticsService {
                 .ok_or_else(|| anyhow!("Missing LastReferenceTime"))?;
             let last_reference_time = DateTime::<Utc>::from_naive_utc_and_offset(last_ref_naive, Utc);
 
-            let first_delivery_start = row.get::<Option<chrono::NaiveDateTime>, _>("FirstDeliveryStart")
-                .ok()
-                .flatten()
+            let first_delivery_start = row.get::<chrono::NaiveDateTime, _>("FirstDeliveryStart")
                 .map(|d| DateTime::<Utc>::from_naive_utc_and_offset(d, Utc));
 
-            let last_delivery_start = row.get::<Option<chrono::NaiveDateTime>, _>("LastDeliveryStart")
-                .ok()
-                .flatten()
+            let last_delivery_start = row.get::<chrono::NaiveDateTime, _>("LastDeliveryStart")
                 .map(|d| DateTime::<Utc>::from_naive_utc_and_offset(d, Utc));
 
-            let first_delivery_end = row.get::<Option<chrono::NaiveDateTime>, _>("FirstDeliveryEnd")
-                .ok()
-                .flatten()
+            let first_delivery_end = row.get::<chrono::NaiveDateTime, _>("FirstDeliveryEnd")
                 .map(|d| DateTime::<Utc>::from_naive_utc_and_offset(d, Utc));
 
-            let last_delivery_end = row.get::<Option<chrono::NaiveDateTime>, _>("LastDeliveryEnd")
-                .ok()
-                .flatten()
+            let last_delivery_end = row.get::<chrono::NaiveDateTime, _>("LastDeliveryEnd")
                 .map(|d| DateTime::<Utc>::from_naive_utc_and_offset(d, Utc));
 
-            let min_relative_delivery_period = row.get::<Option<i32>, _>("MinRelativeDeliveryPeriod")
-                .ok()
-                .flatten();
+            let min_relative_delivery_period = row.get::<i32, _>("MinRelativeDeliveryPeriod");
 
-            let max_relative_delivery_period = row.get::<Option<i32>, _>("MaxRelativeDeliveryPeriod")
-                .ok()
-                .flatten();
+            let max_relative_delivery_period = row.get::<i32, _>("MaxRelativeDeliveryPeriod");
 
-            let data_row_count = row.get::<Option<i32>, _>("DataRowCount")
-                .ok()
-                .flatten()
+            let data_row_count = row.get::<i32, _>("DataRowCount")
                 .unwrap_or(0);
 
             Ok(Some(DbStatistics {
