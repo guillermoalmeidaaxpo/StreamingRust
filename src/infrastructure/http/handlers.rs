@@ -67,7 +67,7 @@ pub async fn generic_csv() -> impl IntoResponse {
 
 pub async fn generic_csv_stream(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<Vec<Request>>,
+    Json(payload): Json<crate::domain::request::GenericRequest>,
 ) -> impl IntoResponse {
     let ctx = crate::application::ports::RequestContext {
         stage: "productive".to_string(),
@@ -75,7 +75,9 @@ pub async fn generic_csv_stream(
         data_category: crate::domain::DataCategory::TimeSeries,
     };
 
-    match state.pipeline.stream(ctx, payload).await {
+    let request = payload.into_request();
+
+    match state.pipeline.stream(ctx, vec![request]).await {
         Ok(stream) => {
             let csv_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;

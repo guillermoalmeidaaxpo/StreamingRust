@@ -15,6 +15,10 @@ pub async fn validation_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Result<impl IntoResponse, AppError> {
+    if request.method() == axum::http::Method::GET {
+        return Ok(next.run(request).await);
+    }
+
     // 1. Determine DataCategory based on path
     let category = match request.uri().path() {
         p if p.contains("/curves") => DataCategory::Curves,
@@ -31,8 +35,14 @@ pub async fn validation_middleware(
     let bytes = axum::body::to_bytes(body, usize::MAX).await
         .map_err(|e| AppError::Invalid(format!("Failed to read request body: {}", e)))?;
 
-    let payload: Vec<DomainRequest> = serde_json::from_slice(&bytes)
-        .map_err(|e| AppError::Invalid(format!("Invalid request payload: {}", e)))?;
+    let payload: Vec<DomainRequest> = if parts.uri.path().contains("/generic") {
+        let gen_req: crate::domain::request::GenericRequest = serde_json::from_slice(&bytes)
+            .map_err(|e| AppError::Invalid(format!("Invalid request payload: {}", e)))?;
+        vec![gen_req.into_request()]
+    } else {
+        serde_json::from_slice(&bytes)
+            .map_err(|e| AppError::Invalid(format!("Invalid request payload: {}", e)))?
+    };
 
     // 4. Validate Shape Category Restriction
     for req in &payload {

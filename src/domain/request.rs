@@ -14,30 +14,122 @@ pub struct Request {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenericRequest {
+    #[serde(alias = "id", alias = "Id")]
+    pub id: Option<Identifier>,
+    #[serde(alias = "ids", alias = "Ids")]
+    pub ids: Option<Vec<Identifier>>,
+    #[serde(alias = "versionAsOf", alias = "VersionAsOf")]
+    pub version_as_of: Option<DateTime<Utc>>,
+    #[serde(alias = "filters", alias = "Filters")]
+    pub filters: Option<Filters>,
+    #[serde(alias = "transformations", alias = "Transformations")]
+    pub transformations: Option<Transformations>,
+    #[serde(alias = "columns", alias = "Columns")]
+    pub columns: Option<Vec<String>>,
+    #[serde(alias = "includeDeleted", alias = "IncludeDeleted")]
+    pub include_deleted: Option<bool>,
+}
+
+fn normalize_generic_transformations(transformations: Option<Transformations>) -> Transformations {
+    match transformations {
+        None => Transformations {
+            timezone: Some("UTC".to_string()),
+            target_time_zone: Some("UTC".to_string()),
+            offset: Some(false),
+            nested: None,
+            keys: None,
+            values: None,
+        },
+        Some(t) => {
+            let offset = t.offset.unwrap_or(false);
+            let has_aggregations = t.keys.as_ref().map(|k| !k.is_empty()).unwrap_or(false)
+                || t.values.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+            
+            let mut target_time_zone = t.target_time_zone.clone();
+            let mut timezone = t.timezone.clone();
+
+            if target_time_zone.as_deref().unwrap_or("").is_empty() && timezone.as_ref().map(|tz| !tz.is_empty()).unwrap_or(false) {
+                target_time_zone = timezone.clone();
+            }
+
+            if target_time_zone.as_deref().unwrap_or("").is_empty() && !offset && !has_aggregations {
+                target_time_zone = Some("UTC".to_string());
+                timezone = Some("UTC".to_string());
+            }
+
+            Transformations {
+                timezone,
+                target_time_zone,
+                offset: Some(offset),
+                nested: t.nested,
+                keys: t.keys,
+                values: t.values,
+            }
+        }
+    }
+}
+
+impl GenericRequest {
+    pub fn into_request(self) -> Request {
+        let mut ids = self.ids.unwrap_or_default();
+        if ids.is_empty() {
+            if let Some(id) = self.id {
+                ids.push(id);
+            }
+        }
+        
+        let transformations = normalize_generic_transformations(self.transformations);
+
+        Request {
+            ids,
+            version_as_of: self.version_as_of,
+            filters: self.filters,
+            transformations: Some(transformations),
+            columns: self.columns,
+            include_deleted: self.include_deleted,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Filters {
+    #[serde(alias = "expressions", alias = "Expressions")]
     pub expressions: Vec<String>,
+    #[serde(alias = "filterTimeZone", alias = "filterTimezone", alias = "FilterTimeZone", alias = "FilterTimezone")]
     pub filter_time_zone: Option<String>,
+    #[serde(alias = "shape", alias = "Shape")]
     pub shape: Option<Shape>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Transformations {
+    #[serde(alias = "timezone", alias = "Timezone")]
     pub timezone: Option<String>,
+    #[serde(alias = "targetTimeZone", alias = "targetTimezone", alias = "TargetTimeZone", alias = "TargetTimezone")]
     pub target_time_zone: Option<String>,
+    #[serde(alias = "offset", alias = "Offset")]
     pub offset: Option<bool>,
+    #[serde(alias = "nested", alias = "Nested")]
     pub nested: Option<String>,
+    #[serde(alias = "keys", alias = "Keys")]
     pub keys: Option<Vec<String>>,
+    #[serde(alias = "values", alias = "Values")]
     pub values: Option<Vec<Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct Shape {
+    #[serde(alias = "holidayCalendar", alias = "holidaycalendar", alias = "HolidayCalendar")]
     pub holiday_calendar: Option<i32>,
+    #[serde(alias = "months", alias = "Months")]
     pub months: Option<Vec<String>>,
+    #[serde(alias = "days", alias = "Days")]
     pub days: Option<Vec<String>>,
+    #[serde(alias = "time", alias = "Time")]
     pub time: Option<Vec<TimeRange>>,
 }
 
