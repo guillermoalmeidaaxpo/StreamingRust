@@ -94,6 +94,8 @@ pub struct ExecutionConfig {
     pub optimized_batch_size: usize,
     pub max_sql_parallel: usize,
     pub max_cassandra_parallel: usize,
+    pub max_sql_connections: u32,
+    pub max_cassandra_connections: usize,
     pub reference_time_split_days: i64,
     pub cassandra_reference_time_split_days: i64,
 }

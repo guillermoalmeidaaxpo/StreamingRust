@@ -13,14 +13,20 @@ pub struct MssqlMappingResolver {
 }
 
 impl MssqlMappingResolver {
-    pub async fn new(cmdp_connection_string: &str, mds_connection_string: &str) -> Result<Self> {
+    pub async fn new(cmdp_connection_string: &str, mds_connection_string: &str, max_connections: u32) -> Result<Self> {
         let cmdp_config = super::get_mssql_config(cmdp_connection_string).await?;
         let cmdp_manager = ConnectionManager::new(cmdp_config);
-        let cmdp_pool = Pool::builder().build(cmdp_manager).await?;
+        let cmdp_pool = Pool::builder()
+            .max_size(max_connections)
+            .build(cmdp_manager)
+            .await?;
 
         let mds_config = super::get_mssql_config(mds_connection_string).await?;
         let mds_manager = ConnectionManager::new(mds_config);
-        let mds_pool = Pool::builder().build(mds_manager).await?;
+        let mds_pool = Pool::builder()
+            .max_size(max_connections)
+            .build(mds_manager)
+            .await?;
 
         Ok(Self { cmdp_pool, mds_pool })
     }

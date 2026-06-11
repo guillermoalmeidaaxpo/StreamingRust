@@ -18,10 +18,13 @@ pub struct MssqlRepository {
 }
 
 impl MssqlRepository {
-    pub async fn new(connection_string: &str, gate: Arc<dyn ConnectionGate>) -> Result<Self> {
+    pub async fn new(connection_string: &str, max_connections: u32, gate: Arc<dyn ConnectionGate>) -> Result<Self> {
         let config = super::get_mssql_config(connection_string).await?;
         let manager = ConnectionManager::new(config);
-        let pool = Pool::builder().build(manager).await?;
+        let pool = Pool::builder()
+            .max_size(max_connections)
+            .build(manager)
+            .await?;
 
         Ok(Self { pool, gate })
     }

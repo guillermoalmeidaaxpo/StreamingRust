@@ -19,10 +19,14 @@ impl MssqlStatisticsService {
         connection_string: &str,
         mapping_resolver: Arc<dyn MappingResolver>,
         stage: String,
+        max_connections: u32,
     ) -> Result<Self> {
         let config = super::get_mssql_config(connection_string).await?;
         let manager = ConnectionManager::new(config);
-        let pool = Pool::builder().build(manager).await?;
+        let pool = Pool::builder()
+            .max_size(max_connections)
+            .build(manager)
+            .await?;
         Ok(Self {
             pool,
             mapping_resolver,

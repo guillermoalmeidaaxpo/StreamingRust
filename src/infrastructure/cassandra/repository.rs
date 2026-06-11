@@ -17,12 +17,18 @@ pub struct ScyllaRepository {
 }
 
 impl ScyllaRepository {
-    pub async fn new(hosts: &[String], keyspace: &str) -> Result<Self> {
-        let session = SessionBuilder::new()
+    pub async fn new(hosts: &[String], keyspace: &str, max_connections: usize) -> Result<Self> {
+        let mut builder = SessionBuilder::new()
             .known_nodes(hosts)
-            .use_keyspace(keyspace, true)
-            .build()
-            .await?;
+            .use_keyspace(keyspace, true);
+
+        if max_connections > 0 {
+            builder = builder.pool_size(scylla::transport::session::PoolSize::PerHost(
+                std::num::NonZeroUsize::new(max_connections).unwrap()
+            ));
+        }
+
+        let session = builder.build().await?;
         
         Ok(Self {
             session: Arc::new(session),
