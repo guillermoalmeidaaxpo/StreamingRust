@@ -1,6 +1,7 @@
 pub mod mapping_resolver;
 pub mod repository;
 pub mod query_builder;
+pub mod statistics;
 
 use azure_core::auth::TokenCredential;
 use azure_identity::DefaultAzureCredential;

@@ -13,14 +13,6 @@ use streaming_rust::infrastructure::config::AppConfig;
 use async_trait::async_trait;
 use tracing_subscriber::prelude::*;
 
-struct MockStatsService;
-#[async_trait]
-impl streaming_rust::application::ports::StatisticsService for MockStatsService {
-    async fn estimate_rows(&self, _ids: &[streaming_rust::domain::Identifier], _filters: &streaming_rust::domain::FilterSet) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-}
-
 use streaming_rust::infrastructure::throttling::{RedisCmdpGlobalConnectionGate, NullConnectionGate, ConnectionGate};
 use fred::clients::RedisClient;
 use fred::interfaces::ClientLike;
@@ -130,7 +122,15 @@ async fn main() {
         }),
     ];
     let validation_resolver = Arc::new(RequestValidationStrategyResolver::new(strategies));
-    let stats_service = Arc::new(MockStatsService);
+    let stats_service = Arc::new(
+        streaming_rust::infrastructure::mssql::statistics::MssqlStatisticsService::new(
+            &config.datastores.mds_sql.dsn,
+            resolver.clone(),
+            config.meta.stage.clone(),
+        )
+        .await
+        .expect("Failed to initialize MSSQL statistics service")
+    );
     let row_validator = DataRowsNumberValidator::new(stats_service, parser.clone(), config.execution.batch_size as u64);
 
     // 3. Initialize Planner

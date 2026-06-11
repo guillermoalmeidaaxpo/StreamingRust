@@ -258,8 +258,10 @@ impl DataRowsNumberValidator {
                 crate::domain::FilterSet { expressions: vec![], nodes: vec![] }
             };
 
-            let _estimate = self.stats_service.estimate_rows(&req.ids, &parsed_filters).await?;
-            // if estimate > self.limit { return Err(anyhow!("Request size limit exceeded")); }
+            let estimate = self.stats_service.estimate_rows(&req.ids, &parsed_filters).await?;
+            if estimate > self.limit {
+                return Err(anyhow!("The estimated number of records requested exceeds the quota ({} rows). Provide a smaller range of values for the selected filters.", self.limit));
+            }
         }
         Ok(())
     }
