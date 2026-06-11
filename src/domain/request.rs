@@ -5,11 +5,17 @@ use super::Identifier;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Request {
+    #[serde(alias = "ids", alias = "Ids")]
     pub ids: Vec<Identifier>,
+    #[serde(alias = "versionAsOf", alias = "VersionAsOf")]
     pub version_as_of: Option<DateTime<Utc>>,
+    #[serde(alias = "filters", alias = "Filters")]
     pub filters: Option<Filters>,
+    #[serde(alias = "transformations", alias = "Transformations")]
     pub transformations: Option<Transformations>,
+    #[serde(alias = "columns", alias = "Columns")]
     pub columns: Option<Vec<String>>,
+    #[serde(alias = "includeDeleted", alias = "IncludeDeleted")]
     pub include_deleted: Option<bool>,
 }
 
