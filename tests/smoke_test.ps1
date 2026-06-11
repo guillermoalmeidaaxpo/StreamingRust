@@ -1,8 +1,13 @@
 # Outbound API Rust Smoke Test
 # Run this script while 'cargo run' is active.
+param(
+    [string]$Token
+)
 
 $baseUrl = "http://localhost:8080/api/v1"
-$dummyToken = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJyb2xlcyI6WyJEYXRhUmVhZGVyIl0sImF1ZCI6IjMzNjU2NTg1LTdhYTMtNGZjMS04ODFhLWU5Yzk2OTNkYWUwMCIsImlzcyI6Imh0dHBzOi8vbG9naW4ubWljcm9zb2Z0b25saW5lLmNvbS84NjE5YzY3Yy05NDVhLTQ4YWUtOGU3Ny0zNWIxYjcxYzlIOTgvdjIuMCJ9."
+$fallbackToken = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJyb2xlcyI6WyJEYXRhUmVhZGVyIl0sImF1ZCI6IjMzNjU2NTg1LTdhYTMtNGZjMS04ODFhLWU5Yzk2OTNkYWUwMCIsImlzcyI6Imh0dHBzOi8vbG9naW4ubWljcm9zb2Z0b25saW5lLmNvbS84NjE5YzY3Yy05NDVhLTQ4YWUtOGU3Ny0zNWIxYjcxYzlIOTgvdjIuMCJ9."
+
+$activeToken = if ([string]::IsNullOrWhiteSpace($Token)) { $fallbackToken } else { $Token }
 
 function Test-Endpoint {
     param($Name, $Method, $Path, $Body)
@@ -13,7 +18,7 @@ function Test-Endpoint {
         Uri = "$baseUrl$Path"
         Method = $Method
         Headers = @{
-            "Authorization" = "Bearer $dummyToken"
+            "Authorization" = "Bearer $activeToken"
             "Content-Type" = "application/json"
         }
         ErrorAction = "SilentlyContinue"
