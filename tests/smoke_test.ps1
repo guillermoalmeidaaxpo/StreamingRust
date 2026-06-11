@@ -1,21 +1,23 @@
 # Outbound API Rust Smoke Test
 # Run this script while 'cargo run' is active.
 param(
-    [string]$Token
+    [string]$Token,
+    [string]$BaseUrl = "http://localhost:8080/api/v1",
+    [string]$Endpoint,
+    [string]$Payload
 )
 
-$baseUrl = "http://localhost:8080/api/v1"
 $fallbackToken = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJyb2xlcyI6WyJEYXRhUmVhZGVyIl0sImF1ZCI6IjMzNjU2NTg1LTdhYTMtNGZjMS04ODFhLWU5Yzk2OTNkYWUwMCIsImlzcyI6Imh0dHBzOi8vbG9naW4ubWljcm9zb2Z0b25saW5lLmNvbS84NjE5YzY3Yy05NDVhLTQ4YWUtOGU3Ny0zNWIxYjcxYzlIOTgvdjIuMCJ9."
-
 $activeToken = if ([string]::IsNullOrWhiteSpace($Token)) { $fallbackToken } else { $Token }
 
 function Test-Endpoint {
     param($Name, $Method, $Path, $Body)
     
-    Write-Host "`n[TEST] $Name ($Method $Path)..." -ForegroundColor Cyan
+    $fullUri = if ($Path.StartsWith("http")) { $Path } else { "$BaseUrl$Path" }
+    Write-Host "`n[TEST] $Name ($Method $fullUri)..." -ForegroundColor Cyan
     
     $params = @{
-        Uri = "$baseUrl$Path"
+        Uri = $fullUri
         Method = $Method
         Headers = @{
             "Authorization" = "Bearer $activeToken"
@@ -31,6 +33,10 @@ function Test-Endpoint {
         $response = Invoke-RestMethod @params -ResponseHeadersVariable headers
         $elapsed = ((Get-Date) - $startTime).TotalMilliseconds
         Write-Host "  STATUS: 200 OK ($($elapsed)ms)" -ForegroundColor Green
+        if ($response) { 
+            $count = if ($response.Count) { $response.Count } else { 1 }
+            Write-Host "  RESULT: Received $count items" -ForegroundColor Gray
+        }
         return $true
     } catch {
         $status = $_.Exception.Response.StatusCode.value__
@@ -40,7 +46,13 @@ function Test-Endpoint {
     }
 }
 
-Write-Host "Starting Operational Smoke Test for Rust Outbound API..." -Style Bold
+if (![string]::IsNullOrWhiteSpace($Endpoint)) {
+    Write-Host "Executing Custom Request..." -Style Bold
+    Test-Endpoint "Custom Request" "POST" $Endpoint $Payload
+    exit
+}
+
+Write-Host "Starting Default Operational Smoke Test Suite..." -Style Bold
 
 # 1. Health Checks
 Test-Endpoint "Liveness Check" "GET" "/health/liveness"
@@ -61,7 +73,4 @@ Test-Endpoint "Transactional Sync Request" "POST" "/productive/timeseries" $txBo
 # 3. Transactional Data (Streaming)
 Test-Endpoint "Transactional Stream Request" "POST" "/productive/timeseries/streaming" $txBody
 
-# 4. CSV Generic
-Test-Endpoint "Generic CSV Request" "POST" "/generic" $txBody
-
-Write-Host "`nSmoke Test Complete." -ForegroundColor Yellow
+Write-Host "`nSmoke Test Suite Complete." -ForegroundColor Yellow
