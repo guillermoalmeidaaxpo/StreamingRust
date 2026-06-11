@@ -1,8 +1,6 @@
 use chrono::{DateTime, Utc, Datelike, Timelike, Duration, TimeZone};
 use chrono_tz::Tz;
 use crate::domain::filters::{FilterSet, FilterNode};
-use crate::domain::SourceKind;
-use anyhow::{Result, anyhow};
 
 pub struct QuoteIndexGenerator;
 

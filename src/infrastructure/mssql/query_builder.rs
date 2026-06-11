@@ -1,6 +1,6 @@
-use crate::domain::{ExecutableQuery, SourceKind, DataCategory, MappingViews, ColumnMapping, Mapping, Identifier};
+use crate::domain::{ExecutableQuery, SourceKind, DataCategory, ColumnMapping, Mapping};
 use crate::application::ports::Command;
-use crate::domain::filters::{FilterSet, FilterNode, ComparisonFilter, FilterValue, FilterValueKind};
+use crate::domain::filters::{FilterSet, FilterNode, ComparisonFilter, FilterValue};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
@@ -43,7 +43,7 @@ impl CMDPQueryBuilder {
         Ok(queries)
     }
 
-    fn data_category_for_query(&self, command_category: DataCategory, mapping: &Mapping) -> DataCategory {
+    fn data_category_for_query(&self, _command_category: DataCategory, mapping: &Mapping) -> DataCategory {
         mapping.data_category // Assuming it's always set correctly from DB
     }
 
@@ -338,16 +338,16 @@ fn is_comparison_operator(operator: &str) -> bool {
     matches!(operator, "=" | ">" | ">=" | "<" | "<=")
 }
 
-fn select_columns(columns: &[ColumnMapping], requested_columns: &[String]) -> Vec<String> {
+fn select_columns(_columns: &[ColumnMapping], _requested_columns: &[String]) -> Vec<String> {
     // Stub implementation returning all or requested
     vec!["[d].*".to_string()]
 }
 
-fn order_columns(columns: &[ColumnMapping]) -> Vec<String> {
+fn order_columns(_columns: &[ColumnMapping]) -> Vec<String> {
     vec![]
 }
 
-fn hyperscale_view_name(mapping: &Mapping, requested_columns: &[String], version_as_of: Option<&chrono::DateTime<chrono::Utc>>) -> Result<String> {
+fn hyperscale_view_name(mapping: &Mapping, _requested_columns: &[String], _version_as_of: Option<&chrono::DateTime<chrono::Utc>>) -> Result<String> {
     Ok(mapping.views.latest_version.clone())
 }
 
@@ -359,10 +359,10 @@ fn hyperscale_value_column(category: DataCategory) -> Result<String> {
     }
 }
 
-fn hyperscale_select_columns(columns: &[ColumnMapping], requested_columns: &[String], value_column: &str, include_identifier: bool) -> Vec<String> {
+fn hyperscale_select_columns(_columns: &[ColumnMapping], _requested_columns: &[String], _value_column: &str, _include_identifier: bool) -> Vec<String> {
     vec!["[d].*".to_string()]
 }
 
-fn hyperscale_order_columns(columns: &[ColumnMapping], value_column: &str, include_identifier: bool) -> Vec<String> {
+fn hyperscale_order_columns(_columns: &[ColumnMapping], _value_column: &str, _include_identifier: bool) -> Vec<String> {
     vec![]
 }

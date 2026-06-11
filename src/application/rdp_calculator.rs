@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc, Datelike, Duration};
+use chrono::{DateTime, Utc, Datelike};
 
 pub struct RDPCalculator;
 
@@ -14,23 +14,23 @@ impl RDPCalculator {
             "P6M" => Some(Self::get_half_year_adjusted_period(ref_time, del_start, delivery_resolution) as i64),
             "P1D" => Some((del_start.date_naive() - ref_time.date_naive()).num_days()),
             "P1W" => Some(Self::get_week_adjusted_period(ref_time, del_start) as i64),
-            "PT1H" => Some((del_start.timestamp() / 3600 - ref_time.timestamp() / 3600)),
-            "PT30M" => Some((del_start.timestamp() / 1800 - ref_time.timestamp() / 1800)),
-            "PT15M" => Some((del_start.timestamp() / 900 - ref_time.timestamp() / 900)),
-            "PT5M" => Some((del_start.timestamp() / 300 - ref_time.timestamp() / 300)),
-            "PT1M" => Some((del_start.timestamp() / 60 - ref_time.timestamp() / 60)),
+            "PT1H" => Some(del_start.timestamp() / 3600 - ref_time.timestamp() / 3600 ),
+            "PT30M" => Some(del_start.timestamp() / 1800 - ref_time.timestamp() / 1800 ),
+            "PT15M" => Some(del_start.timestamp() / 900 - ref_time.timestamp() / 900 ),
+            "PT5M" => Some(del_start.timestamp() / 300 - ref_time.timestamp() / 300 ),
+            "PT1M" => Some(del_start.timestamp() / 60 - ref_time.timestamp() / 60 ),
             _ => None,
         }
     }
 
     fn get_years_adjusted_period(ref_time: DateTime<Utc>, del_start: DateTime<Utc>, delivery_resolution: &str) -> i32 {
-        let mut ref_time = ref_time;
-        let mut del_start = del_start;
+        let ref_time = ref_time;
+        let del_start = del_start;
         if delivery_resolution == "Year" {
             // This is a simplified gas-year adjustment from Go/C#
             // In a real impl, we'd use a more robust month/year math
         }
-        (del_start.year() - ref_time.year())
+        del_start.year() - ref_time.year() 
     }
 
     fn get_months_adjusted_period(ref_time: DateTime<Utc>, del_start: DateTime<Utc>) -> i32 {

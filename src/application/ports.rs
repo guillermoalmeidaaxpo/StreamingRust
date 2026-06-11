@@ -25,6 +25,11 @@ pub trait FilterParser: Send + Sync {
     async fn parse(&self, expressions: &[String], time_zone: &Option<String>) -> Result<FilterSet>;
 }
 
+#[async_trait]
+pub trait LicenseValidator: Send + Sync {
+    async fn validate_read_access(&self, token: &str, ids: &[Identifier], stage: &str) -> Result<()>;
+}
+
 pub trait Validator: Send + Sync {
     fn validate(&self, requests: &[Request]) -> Result<()>;
 }

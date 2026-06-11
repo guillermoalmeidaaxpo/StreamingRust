@@ -39,7 +39,7 @@ impl Repository for ScyllaRepository {
         
         let mut items = Vec::new();
         if let Some(rows) = result.rows {
-            for row in rows {
+            for _row in rows {
                 // Mapping Scylla row to DataItem
                 // This is a simplified mapping for demonstration
                 let item = DataItem {

@@ -1,7 +1,6 @@
-use crate::domain::{ExecutableQuery, SourceKind, DataCategory, Mapping, Identifier};
-use crate::domain::source::{MappingViews, ColumnMapping};
+use crate::domain::{ExecutableQuery, SourceKind, DataCategory, Mapping};
 use crate::application::ports::Command;
-use crate::domain::filters::{FilterSet, FilterNode, ComparisonFilter, FilterValue, FilterValueKind};
+use crate::domain::filters::FilterNode;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc, TimeZone, Datelike, Timelike};
@@ -57,7 +56,7 @@ impl CassandraQueryBuilder {
         Ok(queries)
     }
 
-    fn data_category_for_query(&self, command_category: DataCategory, mapping: &Mapping) -> DataCategory {
+    fn data_category_for_query(&self, _command_category: DataCategory, mapping: &Mapping) -> DataCategory {
         mapping.data_category // Assuming it's always set correctly from DB
     }
 
@@ -171,7 +170,7 @@ impl CassandraQueryBuilder {
                 found = true;
 
                 if let Ok(dt) = DateTime::parse_from_rfc3339(&f.value.raw) {
-                    let mut local = dt.with_timezone(&tz);
+                    let local = dt.with_timezone(&tz);
                     // Extract local Hour
                     let mut local_utc_equiv = Utc.with_ymd_and_hms(local.year(), local.month(), local.day(), local.hour(), 0, 0).unwrap();
                     

@@ -44,7 +44,7 @@ impl FilterMapper {
         Self
     }
 
-    pub fn map_to_source(&self, filters: &mut FilterSet, _mappings: &[Mapping]) {
+    pub fn map_to_source(&self, _filters: &mut FilterSet, _mappings: &[Mapping]) {
         // Logic to translate domain field names to source column names
     }
 }

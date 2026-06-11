@@ -1,9 +1,7 @@
-use crate::domain::{DataItem, DataValue};
+use crate::domain::DataItem;
 use crate::application::ports::Command;
 use crate::domain::SourceKind;
-use super::rdp_calculator::RDPCalculator;
 use chrono_tz::Tz;
-use chrono::TimeZone;
 
 #[derive(Clone)]
 pub struct TransformationProcessor;
@@ -23,8 +21,8 @@ impl TransformationProcessor {
 
     fn process_item(&self, item: &mut DataItem, command: &Command, target_tz: Option<Tz>) {
         // 1. Timezone conversion
-        if let Some(tz) = target_tz {
-            for value in item.fields.values_mut() {
+        if let Some(_tz) = target_tz {
+            for _value in item.fields.values_mut() {
                 // In a real implementation, we'd check if DataValue is a timestamp
                 // and convert it using the target_tz
             }
@@ -36,9 +34,9 @@ impl TransformationProcessor {
         }
     }
 
-    fn calculate_rdp(&self, item: &mut DataItem, command: &Command) {
+    fn calculate_rdp(&self, item: &mut DataItem, _command: &Command) {
         // Simplified RDP trigger
-        if let (Some(ref_val), Some(del_val)) = (item.fields.get("ReferenceTime"), item.fields.get("DeliveryStart")) {
+        if let (Some(_ref_val), Some(_del_val)) = (item.fields.get("ReferenceTime"), item.fields.get("DeliveryStart")) {
             // Extract DateTime and call RDPCalculator
         }
     }

@@ -4,7 +4,6 @@ use axum::{
     http::{Request, StatusCode},
     middleware::Next,
     response::IntoResponse,
-    Json,
 };
 use std::sync::Arc;
 use crate::infrastructure::http::router::AppState;

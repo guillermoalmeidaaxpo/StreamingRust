@@ -6,23 +6,86 @@ use axum::{
     response::Response,
 };
 use serde::{Deserialize, Serialize};
-use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
+use jsonwebtoken::{decode, decode_header, DecodingKey, Validation, Algorithm};
 use std::sync::Arc;
 use crate::infrastructure::http::router::AppState;
+use tokio::sync::RwLock;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Principal {
     pub sub: Option<String>,
     #[serde(default)]
     pub roles: Vec<String>,
+    pub raw_token: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct Claims {
     sub: Option<String>,
     roles: Option<Vec<String>>,
-    aud: Option<String>,
+    aud: Option<Vec<String>>, // aud can be string or array
     iss: Option<String>,
+}
+
+// Custom deserializer for aud since it can be string or array in JWT
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Aud {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryDocument {
+    jwks_uri: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct Jwk {
+    kid: String,
+    n: String,
+    e: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct JwkSet {
+    keys: Vec<Jwk>,
+}
+
+pub struct JwkStore {
+    keys: RwLock<HashMap<String, DecodingKey>>,
+    issuer: String,
+}
+
+impl JwkStore {
+    pub fn new(issuer: String) -> Self {
+        Self {
+            keys: RwLock::new(HashMap::new()),
+            issuer,
+        }
+    }
+
+    pub async fn refresh(&self) -> anyhow::Result<()> {
+        let discovery_url = format!("{}/.well-known/openid-configuration", self.issuer.trim_end_matches('/'));
+        let discovery: DiscoveryDocument = reqwest::get(discovery_url).await?.json().await?;
+        
+        let jwks: JwkSet = reqwest::get(discovery.jwks_uri).await?.json().await?;
+        
+        let mut keys = self.keys.write().await;
+        keys.clear();
+        for jwk in jwks.keys {
+            if let Ok(key) = DecodingKey::from_rsa_components(&jwk.n, &jwk.e) {
+                keys.insert(jwk.kid, key);
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_key(&self, kid: &str) -> Option<DecodingKey> {
+        let keys = self.keys.read().await;
+        keys.get(kid).cloned()
+    }
 }
 
 pub async fn auth_middleware(
@@ -39,21 +102,27 @@ pub async fn auth_middleware(
         if auth_header.starts_with("Bearer ") {
             let token = &auth_header[7..];
             
-            // In a full production setup with Entra ID (Azure AD), we would fetch the JWKS 
-            // from the OpenID discovery endpoint and cache it. For this migration parity,
-            // we will configure the Validation object to check issuer, audience, and roles.
-            
-            let mut validation = Validation::default();
+            let header = decode_header(token).map_err(|_| StatusCode::UNAUTHORIZED)?;
+            let kid = header.kid.ok_or(StatusCode::UNAUTHORIZED)?;
+
+            // Try to get key, if not found, refresh once (simplified caching logic)
+            let mut decoding_key = state.jwk_store.get_key(&kid).await;
+            if decoding_key.is_none() {
+                if let Err(e) = state.jwk_store.refresh().await {
+                    tracing::error!("Failed to refresh JWKS: {}", e);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+                decoding_key = state.jwk_store.get_key(&kid).await;
+            }
+
+            let key = decoding_key.ok_or(StatusCode::UNAUTHORIZED)?;
+
+            let mut validation = Validation::new(Algorithm::RS256);
             validation.set_audience(&state.auth_config.audiences);
             validation.set_issuer(&[state.auth_config.issuer.clone()]);
-            // Disabling signature validation purely for the local migration stub as we don't 
-            // have an async JWKS fetcher wired in via reqwest yet.
-            validation.insecure_disable_signature_validation();
+            validation.validate_exp = true;
 
-            // A dummy key is required by the jsonwebtoken API even when signature validation is disabled
-            let dummy_key = DecodingKey::from_secret(&[]);
-
-            match decode::<Claims>(token, &dummy_key, &validation) {
+            match decode::<Claims>(token, &key, &validation) {
                 Ok(token_data) => {
                     let user_roles = token_data.claims.roles.unwrap_or_default();
                     
@@ -69,6 +138,7 @@ pub async fn auth_middleware(
                     let principal = Principal {
                         sub: token_data.claims.sub,
                         roles: user_roles,
+                        raw_token: token.to_string(),
                     };
                     request.extensions_mut().insert(principal);
                     

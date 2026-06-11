@@ -45,6 +45,7 @@ regex = "1.10"
 # Parsing (ANTLR)
 antlr4rust = "0.5.2"
 tokio-util = { version = "0.7.18", features = ["compat"] }
+reqwest = { version = "0.13.4", features = ["json", "rustls"] }
 
 [build-dependencies]
 antlr4rust = "0.5.2"

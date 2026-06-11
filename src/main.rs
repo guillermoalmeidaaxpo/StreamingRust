@@ -99,10 +99,21 @@ async fn main() {
         repositories
     ));
 
+    let license_validator: Arc<dyn streaming_rust::application::ports::LicenseValidator> = Arc::new(
+        streaming_rust::infrastructure::auth::license::HttpLicenseValidator::new(
+            config.authorization_api.base_url.clone(),
+            config.authorization_api.authorize_path.clone(),
+            config.authorization_api.universe_authorize_path.clone(),
+        )
+    );
+
     let state = Arc::new(AppState { 
         pipeline,
         auth_config: config.auth.clone(),
+        meta_config: config.meta.clone(),
         validation_resolver,
+        jwk_store: Arc::new(streaming_rust::infrastructure::auth::middleware::JwkStore::new(config.auth.issuer.clone())),
+        license_validator,
     });
 
     // 5. Start HTTP Server

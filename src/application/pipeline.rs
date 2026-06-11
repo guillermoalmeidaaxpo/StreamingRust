@@ -2,12 +2,10 @@ use std::sync::Arc;
 use std::pin::Pin;
 use futures::Stream;
 use anyhow::{Result, anyhow};
-use crate::domain::{Request, DataItem, SourceKind, DataCategory};
-use super::ports::{FilterParser, Repository, MappingResolver, Command, Validator, StatisticsService, RequestContext, Planner, Plan};
-use super::strategy::StrategySelector;
+use crate::domain::{Request, DataItem, SourceKind};
+use super::ports::{Repository, Validator, RequestContext, Planner};
 use super::transform::TransformationProcessor;
 use super::validator::{RequestValidationStrategyResolver, DataRowsNumberValidator};
-use super::filter_engine::FilterProvider;
 
 pub struct Pipeline {
     validator: Arc<dyn Validator>,

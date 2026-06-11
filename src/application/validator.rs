@@ -1,6 +1,5 @@
 use anyhow::{Result, anyhow};
 use regex::Regex;
-use std::collections::HashSet;
 use std::sync::Arc;
 use crate::application::ports::{Validator, RequestValidationStrategy, StatisticsService, FilterParser};
 use crate::domain::{Request, DataCategory};

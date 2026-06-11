@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc, Duration, Datelike, Timelike};
+use chrono::{DateTime, Utc, Duration};
 use anyhow::{Result, anyhow};
 
 pub fn apply_arithmetic(dt: DateTime<Utc>, operator: &str, period: &str) -> Result<DateTime<Utc>> {

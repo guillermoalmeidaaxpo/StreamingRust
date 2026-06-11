@@ -2,14 +2,13 @@ use async_trait::async_trait;
 use anyhow::{Result, anyhow};
 use crate::application::ports::FilterParser;
 use crate::domain::filters::*;
-use crate::domain::DataCategory;
 
 use crate::infrastructure::generated::outboundapilexer::OutboundAPILexer;
 use crate::infrastructure::generated::outboundapiparser::*;
 use crate::infrastructure::generated::outboundapiparservisitor::OutboundAPIParserVisitor;
 use antlr4rust::common_token_stream::CommonTokenStream;
 use antlr4rust::InputStream;
-use antlr4rust::tree::{ParseTree, ParseTreeVisitor, Visitable};
+use antlr4rust::tree::{ParseTree, Visitable};
 
 pub struct AntlrFilterParser;
 

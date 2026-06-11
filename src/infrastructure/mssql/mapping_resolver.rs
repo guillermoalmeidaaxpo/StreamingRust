@@ -3,12 +3,9 @@ use chrono::{DateTime, Utc};
 use crate::application::ports::MappingResolver;
 use crate::domain::{Identifier, DataCategory, Mapping, SourceKind, MappingViews, ColumnMapping};
 use anyhow::{Result, anyhow};
-use tiberius::{Config, Client, Query, Row};
+use tiberius::{Config, Query, Row};
 use bb8_tiberius::ConnectionManager;
 use bb8::Pool;
-use tokio::net::TcpStream;
-use tokio_util::compat::TokioAsyncWriteCompatExt;
-use std::sync::Arc;
 
 pub struct MssqlMappingResolver {
     cmdp_pool: Pool<ConnectionManager>,
@@ -144,7 +141,7 @@ impl MssqlMappingResolver {
         mappings
     }
 
-    fn build_domain_mappings_from_mds(&self, rows: Vec<Row>, fallback_category: DataCategory) -> Vec<Mapping> {
+    fn build_domain_mappings_from_mds(&self, rows: Vec<Row>, _fallback_category: DataCategory) -> Vec<Mapping> {
         let mut by_id: std::collections::HashMap<Identifier, Vec<&Row>> = std::collections::HashMap::new();
         let mut order = Vec::new();
 

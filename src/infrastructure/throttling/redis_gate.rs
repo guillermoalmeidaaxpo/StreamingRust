@@ -1,9 +1,7 @@
-use std::sync::Arc;
 use std::time::Duration;
 use anyhow::{Result, anyhow};
-use fred::interfaces::{ClientLike, KeysInterface, SortedSetsInterface, LuaInterface};
+use fred::interfaces::{ClientLike, SortedSetsInterface, LuaInterface};
 use fred::clients::RedisClient;
-use fred::types::RedisValue;
 use uuid::Uuid;
 use chrono::Utc;
 use std::future::Future;

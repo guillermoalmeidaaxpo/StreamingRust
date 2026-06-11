@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc, TimeZone, Datelike, Timelike, Duration};
-use chrono_tz::{Tz, Europe::Zurich};
+use chrono_tz::Europe::Zurich;
 use anyhow::{Result, anyhow};
 
 pub fn resolve_interval(name: &str, start_point: DateTime<Utc>) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
