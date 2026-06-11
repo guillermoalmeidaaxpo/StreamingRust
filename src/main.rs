@@ -78,11 +78,17 @@ async fn main() {
     let row_validator = DataRowsNumberValidator::new(stats_service, parser.clone(), config.execution.batch_size as u64);
 
     // 3. Initialize Planner
+    let filter_provider = Arc::new(FilterProvider::new(cmdp_repo.clone()));
     let cassandra_builder = streaming_rust::infrastructure::cassandra::query_builder::CassandraQueryBuilder::new(
         config.datastores.cassandra.table_mappings.clone(),
         Some(config.datastores.cassandra.keyspace.clone())
     );
-    let planner = Arc::new(streaming_rust::application::planner::DefaultPlanner::new(resolver.clone(), parser.clone(), cassandra_builder));
+    let planner = Arc::new(streaming_rust::application::planner::DefaultPlanner::new(
+        resolver.clone(), 
+        parser.clone(), 
+        filter_provider.clone(),
+        cassandra_builder
+    ));
 
     // 4. Initialize Core Pipeline
     let pipeline = Arc::new(Pipeline::new(

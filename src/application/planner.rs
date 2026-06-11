@@ -6,21 +6,29 @@ use super::strategy::StrategySelector;
 use super::quote_index::QuoteIndexGenerator;
 use crate::infrastructure::mssql::query_builder::{CMDPQueryBuilder, HyperscaleQueryBuilder};
 use crate::infrastructure::cassandra::query_builder::CassandraQueryBuilder;
+use super::filter_engine::FilterProvider;
 use anyhow::Result;
 
 pub struct DefaultPlanner {
     resolver: Arc<dyn MappingResolver>,
     parser: Arc<dyn FilterParser>,
+    filter_provider: Arc<FilterProvider>,
     cmdp_builder: CMDPQueryBuilder,
     hyperscale_builder: HyperscaleQueryBuilder,
     cassandra_builder: CassandraQueryBuilder,
 }
 
 impl DefaultPlanner {
-    pub fn new(resolver: Arc<dyn MappingResolver>, parser: Arc<dyn FilterParser>, cassandra_builder: CassandraQueryBuilder) -> Self {
+    pub fn new(
+        resolver: Arc<dyn MappingResolver>, 
+        parser: Arc<dyn FilterParser>, 
+        filter_provider: Arc<FilterProvider>,
+        cassandra_builder: CassandraQueryBuilder
+    ) -> Self {
         Self { 
             resolver, 
             parser,
+            filter_provider,
             cmdp_builder: CMDPQueryBuilder::new(),
             hyperscale_builder: HyperscaleQueryBuilder::new(),
             cassandra_builder,
@@ -79,11 +87,14 @@ impl Planner for DefaultPlanner {
         for request in requests {
             let mappings = self.resolver.resolve_mappings(&request.ids, ctx.data_category, &ctx.stage).await?;
             
-            let parsed_filters = if let Some(f) = &request.filters {
+            let raw_filters = if let Some(f) = &request.filters {
                 self.parser.parse(&f.expressions, &f.filter_time_zone).await?
             } else {
                 crate::domain::FilterSet { expressions: vec![], nodes: vec![] }
             };
+
+            // 15.1 Requirement: TransactionalDataCommandParser -> FilterProvider.GetFilters
+            let runtime_filters = self.filter_provider.get_runtime_filters(raw_filters, &mappings).await?;
 
             for mapping in mappings {
                 let has_aggregations = request.transformations.as_ref().map(|t| t.keys.is_some()).unwrap_or(false);
@@ -102,7 +113,7 @@ impl Planner for DefaultPlanner {
                     target_time_zone: request.transformations.as_ref().and_then(|t| t.target_time_zone.clone()).unwrap_or_default(),
                     has_aggregations,
                     has_shape,
-                    filters: parsed_filters.clone(),
+                    filters: runtime_filters.clone(),
                     mappings: vec![mapping.clone()],
                     source,
                     quote_indices: vec![],
