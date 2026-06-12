@@ -46,12 +46,15 @@ impl ConnectionManager {
 #[async_trait]
 impl ManageConnection for ConnectionManager {
     type Connection = Client<Compat<TcpStream>>;
-    type Error = anyhow::Error;
+    type Error = tiberius::error::Error;
 
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        let config = self.build_config().await?;
-        let tcp = TcpStream::connect(config.get_addr()).await?;
-        tcp.set_nodelay(true)?;
+        let config = self.build_config().await
+            .map_err(|e| tiberius::error::Error::Protocol(format!("Failed to build config: {}", e).into()))?;
+        let tcp = TcpStream::connect(config.get_addr()).await
+            .map_err(tiberius::error::Error::Io)?;
+        tcp.set_nodelay(true)
+            .map_err(tiberius::error::Error::Io)?;
         let client = Client::connect(config, tcp.compat_write()).await?;
         Ok(client)
     }
