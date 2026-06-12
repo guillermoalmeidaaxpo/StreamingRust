@@ -11,6 +11,7 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use crate::infrastructure::throttling::ConnectionGate;
+use regex::Regex;
 
 pub struct MssqlRepository {
     pool: Pool<ConnectionManager>,
@@ -35,15 +36,46 @@ impl Repository for MssqlRepository {
     async fn execute(&self, query: ExecutableQuery) -> Result<Vec<DataItem>> {
         tracing::info!("Executing MSSQL query for ID: {}. Statement: {} with arguments: {:?}", query.id, query.statement, query.arguments);
 
+        let (statement_prepared, args) = prepare_query(&query.statement, &query.parameters);
+
         // 1. Acquire global connection slot
         let mut releaser = self.gate.acquire().await?;
 
         let mut conn = self.pool.get().await?;
-        let _result = conn.simple_query(query.statement).await?;
+        let mut tib_query = tiberius::Query::new(statement_prepared);
+        for val in &args {
+            match val {
+                serde_json::Value::Null => {
+                    tib_query.bind(Option::<&str>::None);
+                }
+                serde_json::Value::Bool(b) => {
+                    tib_query.bind(*b);
+                }
+                serde_json::Value::Number(num) => {
+                    if let Some(i) = num.as_i64() {
+                        tib_query.bind(i);
+                    } else if let Some(f) = num.as_f64() {
+                        tib_query.bind(f);
+                    }
+                }
+                serde_json::Value::String(s) => {
+                    tib_query.bind(s.as_str());
+                }
+                serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                    tib_query.bind(val.to_string());
+                }
+            }
+        }
 
-        let items = Vec::new();
-        // Tiberius result processing
-        // result.into_first_result().await? ...
+        let mut stream = tib_query.query(&mut conn).await?;
+        let mut items = Vec::new();
+        while let Some(row_res) = stream.next().await {
+            let _row = row_res?;
+            items.push(DataItem {
+                id: query.id,
+                fields: HashMap::new(),
+            });
+        }
 
         // 2. Release global connection slot
         releaser.release().await;
@@ -56,17 +88,42 @@ impl Repository for MssqlRepository {
 
         let pool = self.pool.clone();
         let id = query.id;
+        let (statement_prepared, args) = prepare_query(&query.statement, &query.parameters);
 
         // 1. Acquire global connection slot
         let mut releaser = self.gate.acquire().await?;
 
         let stream = try_stream! {
             let mut conn = pool.get().await?;
-            let mut stream = conn.simple_query(query.statement).await?;
+            let mut tib_query = tiberius::Query::new(&statement_prepared);
+            for val in &args {
+                match val {
+                    serde_json::Value::Null => {
+                        tib_query.bind(Option::<&str>::None);
+                    }
+                    serde_json::Value::Bool(b) => {
+                        tib_query.bind(*b);
+                    }
+                    serde_json::Value::Number(num) => {
+                        if let Some(i) = num.as_i64() {
+                            tib_query.bind(i);
+                        } else if let Some(f) = num.as_f64() {
+                            tib_query.bind(f);
+                        }
+                    }
+                    serde_json::Value::String(s) => {
+                        tib_query.bind(s.as_str());
+                    }
+                    serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                        tib_query.bind(val.to_string());
+                    }
+                }
+            }
+
+            let mut stream = tib_query.query(&mut conn).await?;
 
             while let Some(item) = stream.next().await {
                 let _row = item?;
-                // Map row to DataItem
                 yield DataItem {
                     id,
                     fields: HashMap::new(),
@@ -79,5 +136,31 @@ impl Repository for MssqlRepository {
 
         Ok(Box::pin(stream))
     }
+}
+
+fn prepare_query(statement: &str, params: &HashMap<String, serde_json::Value>) -> (String, Vec<serde_json::Value>) {
+    let re = Regex::new(r"@([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
+    let mut new_statement = String::new();
+    let mut args = Vec::new();
+    let mut last_idx = 0;
+
+    for cap in re.captures_iter(statement) {
+        let mat = cap.get(0).unwrap();
+        let name = cap.get(1).unwrap().as_str();
+
+        new_statement.push_str(&statement[last_idx..mat.start()]);
+
+        if let Some(val) = params.get(name) {
+            args.push(val.clone());
+            let param_placeholder = format!("@p{}", args.len());
+            new_statement.push_str(&param_placeholder);
+        } else {
+            new_statement.push_str(mat.as_str());
+        }
+        last_idx = mat.end();
+    }
+    new_statement.push_str(&statement[last_idx..]);
+
+    (new_statement, args)
 }
 
