@@ -94,7 +94,7 @@ impl Planner for DefaultPlanner {
             };
 
             // 15.1 Requirement: TransactionalDataCommandParser -> FilterProvider.GetFilters
-            let runtime_filters = self.filter_provider.get_runtime_filters(raw_filters, &mappings).await?;
+            let runtime_filters = self.filter_provider.get_runtime_filters(raw_filters, &mappings, self.resolver.as_ref()).await?;
 
             for mapping in mappings {
                 let has_aggregations = request.transformations.as_ref().map(|t| t.keys.is_some()).unwrap_or(false);

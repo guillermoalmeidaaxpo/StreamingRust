@@ -4,4 +4,6 @@ pub mod interval;
 
 pub use point_in_time::{parse_point_in_time, parse_point_in_time_arithmetic, format_utc};
 pub use arithmetic::apply_arithmetic;
+pub use interval::resolve_time_interval_arithmetic;
+
 

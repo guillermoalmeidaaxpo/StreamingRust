@@ -1,15 +1,22 @@
 use chrono::{DateTime, Utc, TimeZone, Datelike, Timelike, Duration};
 use chrono_tz::Europe::Zurich;
+use chrono_tz::Tz;
 use anyhow::{Result, anyhow};
 
-pub fn resolve_interval(name: &str, start_point: DateTime<Utc>) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
+pub fn resolve_interval(name: &str, start_point: DateTime<Utc>, tz_name: &str) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
+    let tz: Tz = match tz_name.to_uppercase().as_str() {
+        "" | "UTC" => chrono_tz::UTC,
+        "CET" => "Europe/Zurich".parse().map_err(|_| anyhow!("Invalid timezone CET"))?,
+        _ => tz_name.parse().map_err(|_| anyhow!("Invalid timezone {}", tz_name))?,
+    };
+
     let name_lower = name.to_lowercase();
     match name_lower.as_str() {
-        "tiday" => Ok(tiday(start_point)),
-        "tiweek" => Ok(tiweek(start_point)),
-        "timonth" => Ok(timonth(start_point)),
-        "tiquarter" => Ok(tiquarter(start_point)),
-        "tiyear" => Ok(tiyear(start_point)),
+        "tiday" => Ok(tiday(start_point, tz)),
+        "tiweek" => Ok(tiweek(start_point, tz)),
+        "timonth" => Ok(timonth(start_point, tz)),
+        "tiquarter" => Ok(tiquarter(start_point, tz)),
+        "tiyear" => Ok(tiyear(start_point, tz)),
         "gasdayeurope" => Ok(gasdayeurope(start_point)),
         "gasweekeurope" => Ok(gasweekeurope(start_point)),
         "gasmontheurope" => Ok(gasmontheurope(start_point)),
@@ -21,47 +28,82 @@ pub fn resolve_interval(name: &str, start_point: DateTime<Utc>) -> Result<(DateT
     }
 }
 
+fn resolve_local(tz: Tz, date: chrono::NaiveDate, hour: u32) -> DateTime<Tz> {
+    match tz.from_local_datetime(&date.and_hms_opt(hour, 0, 0).unwrap()) {
+        chrono::LocalResult::Single(dt) => dt,
+        chrono::LocalResult::Ambiguous(min, _) => min,
+        chrono::LocalResult::None => {
+            match tz.from_local_datetime(&date.and_hms_opt(hour + 1, 0, 0).unwrap()) {
+                chrono::LocalResult::Single(dt) => dt,
+                chrono::LocalResult::Ambiguous(min, _) => min,
+                chrono::LocalResult::None => panic!("Invalid local datetime"),
+            }
+        }
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Standard Time Intervals (TIDay, TIMonth, etc.)
-// These start at 00:00:00 UTC of the respective boundary
 // -----------------------------------------------------------------------------
 
-fn tiday(dt: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {
-    let start = Utc.with_ymd_and_hms(dt.year(), dt.month(), dt.day(), 0, 0, 0).single().unwrap();
-    let end = start + Duration::days(1);
+fn tiday(dt: DateTime<Utc>, tz: Tz) -> (DateTime<Utc>, DateTime<Utc>) {
+    let local = dt.with_timezone(&tz);
+    let start_local = resolve_local(tz, local.date_naive(), 0);
+    let start = start_local.with_timezone(&Utc);
+    let end = (start_local + Duration::days(1)).with_timezone(&Utc);
     (start, end)
 }
 
-fn tiweek(dt: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {
-    let days_from_monday = dt.weekday().num_days_from_monday();
-    let start = (dt - Duration::days(days_from_monday as i64)).with_time(chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()).unwrap();
-    let end = start + Duration::days(7);
+fn tiweek(dt: DateTime<Utc>, tz: Tz) -> (DateTime<Utc>, DateTime<Utc>) {
+    let local = dt.with_timezone(&tz);
+    let days_from_monday = local.weekday().num_days_from_monday();
+    let start_date = local.date_naive() - Duration::days(days_from_monday as i64);
+    let start_local = resolve_local(tz, start_date, 0);
+    let start = start_local.with_timezone(&Utc);
+    let end = (start_local + Duration::days(7)).with_timezone(&Utc);
     (start, end)
 }
 
-fn timonth(dt: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {
-    let start = Utc.with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0).single().unwrap();
-    let next_month = if dt.month() == 12 { 1 } else { dt.month() + 1 };
-    let next_year = if dt.month() == 12 { dt.year() + 1 } else { dt.year() };
-    let end = Utc.with_ymd_and_hms(next_year, next_month, 1, 0, 0, 0).single().unwrap();
+fn timonth(dt: DateTime<Utc>, tz: Tz) -> (DateTime<Utc>, DateTime<Utc>) {
+    let local = dt.with_timezone(&tz);
+    let start_date = local.date_naive().with_day(1).unwrap();
+    let start_local = resolve_local(tz, start_date, 0);
+    let start = start_local.with_timezone(&Utc);
+    
+    let next_month = if local.month() == 12 { 1 } else { local.month() + 1 };
+    let next_year = if local.month() == 12 { local.year() + 1 } else { local.year() };
+    let end_date = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1).unwrap();
+    let end_local = resolve_local(tz, end_date, 0);
+    let end = end_local.with_timezone(&Utc);
     (start, end)
 }
 
-fn tiquarter(dt: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {
-    let quarter = (dt.month() - 1) / 3 + 1;
+fn tiquarter(dt: DateTime<Utc>, tz: Tz) -> (DateTime<Utc>, DateTime<Utc>) {
+    let local = dt.with_timezone(&tz);
+    let quarter = (local.month() - 1) / 3 + 1;
     let start_month = (quarter - 1) * 3 + 1;
-    let start = Utc.with_ymd_and_hms(dt.year(), start_month, 1, 0, 0, 0).single().unwrap();
+    let start_date = chrono::NaiveDate::from_ymd_opt(local.year(), start_month, 1).unwrap();
+    let start_local = resolve_local(tz, start_date, 0);
+    let start = start_local.with_timezone(&Utc);
     
     let next_quarter = if quarter == 4 { 1 } else { quarter + 1 };
-    let next_year = if quarter == 4 { dt.year() + 1 } else { dt.year() };
+    let next_year = if quarter == 4 { local.year() + 1 } else { local.year() };
     let next_month = (next_quarter - 1) * 3 + 1;
-    let end = Utc.with_ymd_and_hms(next_year, next_month, 1, 0, 0, 0).single().unwrap();
+    let end_date = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1).unwrap();
+    let end_local = resolve_local(tz, end_date, 0);
+    let end = end_local.with_timezone(&Utc);
     (start, end)
 }
 
-fn tiyear(dt: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {
-    let start = Utc.with_ymd_and_hms(dt.year(), 1, 1, 0, 0, 0).single().unwrap();
-    let end = Utc.with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0).single().unwrap();
+fn tiyear(dt: DateTime<Utc>, tz: Tz) -> (DateTime<Utc>, DateTime<Utc>) {
+    let local = dt.with_timezone(&tz);
+    let start_date = chrono::NaiveDate::from_ymd_opt(local.year(), 1, 1).unwrap();
+    let start_local = resolve_local(tz, start_date, 0);
+    let start = start_local.with_timezone(&Utc);
+    
+    let end_date = chrono::NaiveDate::from_ymd_opt(local.year() + 1, 1, 1).unwrap();
+    let end_local = resolve_local(tz, end_date, 0);
+    let end = end_local.with_timezone(&Utc);
     (start, end)
 }
 
@@ -178,3 +220,78 @@ fn gasyeareurope(dt: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {
     
     (start, end)
 }
+
+pub fn resolve_time_interval_arithmetic(raw: &str, default_tz: &str) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
+    let raw = raw.trim();
+    
+    // Find the last occurrence of ')'
+    let last_paren = raw.rfind(')').ok_or_else(|| anyhow!("Invalid interval expression: {}", raw))?;
+    let base_interval = raw[..=last_paren].trim();
+    let trailing = raw[last_paren + 1..].trim();
+    
+    let (mut start, mut end) = resolve_base_time_interval(base_interval, default_tz)?;
+    
+    if !trailing.is_empty() {
+        let re = regex::Regex::new(r"^\s*([+-])\s*(P[0-9A-Z_]+)\s*$").unwrap();
+        if let Some(caps) = re.captures(trailing) {
+            let op = caps.get(1).unwrap().as_str();
+            let per = caps.get(2).unwrap().as_str();
+            start = crate::domain::timeexpr::arithmetic::apply_arithmetic(start, op, per)?;
+            end = crate::domain::timeexpr::arithmetic::apply_arithmetic(end, op, per)?;
+        } else {
+            return Err(anyhow!("Invalid trailing interval arithmetic: {}", trailing));
+        }
+    }
+    
+    Ok((start, end))
+}
+
+fn resolve_base_time_interval(base: &str, default_tz: &str) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
+    let base = base.trim();
+    
+    // Check if it's explicit: ti(start, end)
+    if base.to_lowercase().starts_with("ti(") && base.ends_with(')') {
+        let inner = &base[3..base.len() - 1];
+        let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
+        if parts.len() != 2 {
+            return Err(anyhow!("Explicit interval must have start and end datetimes"));
+        }
+        let start_dt = crate::domain::timeexpr::point_in_time::parse_point_in_time(parts[0], default_tz)?;
+        let end_dt = crate::domain::timeexpr::point_in_time::parse_point_in_time(parts[1], default_tz)?;
+        return Ok((start_dt, end_dt));
+    }
+    
+    let first_paren = base.find('(').ok_or_else(|| anyhow!("Invalid interval function: {}", base))?;
+    let name = &base[..first_paren].trim();
+    let inner = &base[first_paren + 1..base.len() - 1];
+    
+    let last_comma = find_last_comma_outside_parens(inner);
+    
+    let (pit_expr, tz_str) = match last_comma {
+        Some(idx) => {
+            let pit = inner[..idx].trim();
+            let tz = inner[idx + 1..].trim();
+            (pit, tz)
+        }
+        None => (inner.trim(), default_tz),
+    };
+    
+    let start_point = crate::domain::timeexpr::point_in_time::parse_point_in_time_arithmetic(pit_expr, default_tz)?;
+    
+    resolve_interval(name, start_point, tz_str)
+}
+
+fn find_last_comma_outside_parens(s: &str) -> Option<usize> {
+    let mut depth = 0;
+    let mut last_comma = None;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => last_comma = Some(i),
+            _ => {}
+        }
+    }
+    last_comma
+}
+
