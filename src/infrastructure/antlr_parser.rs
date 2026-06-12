@@ -75,7 +75,7 @@ impl FilterVisitor {
 
     fn parse_point_in_time(&mut self, raw: &str, tz: Option<String>) -> FilterValue {
         let effective_tz = self.effective_time_zone(tz.clone());
-        let result = crate::domain::timeexpr::parse_point_in_time(raw, &effective_tz);
+        let result = crate::domain::timeexpr::parse_point_in_time_arithmetic(raw, &effective_tz);
         
         let mut value = FilterValue {
             kind: FilterValueKind::PointInTime,
