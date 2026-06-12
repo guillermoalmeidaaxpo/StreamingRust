@@ -4,7 +4,7 @@ use crate::application::ports::MappingResolver;
 use crate::domain::{Identifier, DataCategory, Mapping, SourceKind, MappingViews, ColumnMapping};
 use anyhow::{Result, anyhow};
 use tiberius::{Query, Row};
-use bb8_tiberius::ConnectionManager;
+use super::ConnectionManager;
 use bb8::Pool;
 use std::sync::Mutex;
 use std::collections::HashMap;
@@ -25,22 +25,19 @@ impl MssqlMappingResolver {
         cmdp_connection_string: &str,
         max_connections: u32,
     ) -> Result<Self> {
-        let mapping_config = super::get_mssql_config(mapping_connection_string).await?;
-        let mapping_manager = ConnectionManager::new(mapping_config);
+        let mapping_manager = ConnectionManager::new(mapping_connection_string)?;
         let mapping_pool = Pool::builder()
             .max_size(max_connections)
             .build(mapping_manager)
             .await?;
 
-        let mds_config = super::get_mssql_config(mds_connection_string).await?;
-        let mds_manager = ConnectionManager::new(mds_config);
+        let mds_manager = ConnectionManager::new(mds_connection_string)?;
         let mds_pool = Pool::builder()
             .max_size(max_connections)
             .build(mds_manager)
             .await?;
 
-        let cmdp_config = super::get_mssql_config(cmdp_connection_string).await?;
-        let cmdp_manager = ConnectionManager::new(cmdp_config);
+        let cmdp_manager = ConnectionManager::new(cmdp_connection_string)?;
         let cmdp_pool = Pool::builder()
             .max_size(max_connections)
             .build(cmdp_manager)

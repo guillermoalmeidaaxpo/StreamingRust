@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use crate::application::ports::{StatisticsService, MappingResolver};
 use crate::domain::{Identifier, FilterSet, DataCategory, Mapping, filters::FilterNode};
 use anyhow::{Result, anyhow};
-use bb8_tiberius::ConnectionManager;
+use super::ConnectionManager;
 use bb8::Pool;
 use std::sync::Arc;
 use tiberius::Query;
@@ -25,8 +25,7 @@ impl MssqlStatisticsService {
         stage: String,
         max_connections: u32,
     ) -> Result<Self> {
-        let config = super::get_mssql_config(connection_string).await?;
-        let manager = ConnectionManager::new(config);
+        let manager = ConnectionManager::new(connection_string)?;
         let pool = Pool::builder()
             .max_size(max_connections)
             .build(manager)

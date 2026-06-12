@@ -4,7 +4,7 @@ use crate::domain::{DataItem, ExecutableQuery};
 use anyhow::Result;
 use futures::Stream;
 use std::pin::Pin;
-use bb8_tiberius::ConnectionManager;
+use super::ConnectionManager;
 use bb8::Pool;
 use async_stream::try_stream;
 use futures::StreamExt;
@@ -20,8 +20,7 @@ pub struct MssqlRepository {
 
 impl MssqlRepository {
     pub async fn new(connection_string: &str, max_connections: u32, gate: Arc<dyn ConnectionGate>) -> Result<Self> {
-        let config = super::get_mssql_config(connection_string).await?;
-        let manager = ConnectionManager::new(config);
+        let manager = ConnectionManager::new(connection_string)?;
         let pool = Pool::builder()
             .max_size(max_connections)
             .build(manager)
