@@ -84,7 +84,7 @@ impl MssqlStatisticsService {
         let mut client = self.pool.get().await?;
         let mut query = Query::new(query_text);
         query.bind(mdo_id);
-
+        tracing::info!("Executing statistics query: {} with parameter MdoId: {}", query_text, mdo_id);
         let stream = query.query(&mut client).await?;
         let row_opt = stream.into_row().await?;
 

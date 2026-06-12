@@ -91,6 +91,7 @@ impl MssqlMappingResolver {
             query.bind(*id);
         }
 
+        tracing::info!("Executing CMDP metadata mapping query: {} with parameters: {:?}", query_text, ids);
         let stream = query.query(&mut client).await?;
         let rows = stream.into_first_result().await?;
         
@@ -115,6 +116,7 @@ impl MssqlMappingResolver {
             query.bind(*id);
         }
 
+        tracing::info!("Executing MDS metadata mapping query: {} with parameters: {:?}", query_text, ids);
         let stream = query.query(&mut client).await?;
         let rows = stream.into_first_result().await?;
         
