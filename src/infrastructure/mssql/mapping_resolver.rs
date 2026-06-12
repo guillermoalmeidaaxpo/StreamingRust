@@ -103,6 +103,8 @@ impl MssqlMappingResolver {
         let query_text = format!(
             "SELECT MdoId, CategoryName, ResolutionISO, ColumnName, DataType, OrderPriority, \
              KeyColumnOrdering, ValueColumnOrdering, LatestVersionView, LatestReferenceTimeView, \
+             LatestVersionView + 'WithCreatedOn' AS LatestVersionWithCreatedOnView, \
+             LatestReferenceTimeView + 'WithCreatedOn' AS LatestReferenceTimeWithCreatedOnView, \
              GetByCreatedOnView, GetByCreatedOnLatestReferenceTimeView, TimeZone \
              FROM [Api].[VI_MdsMappingDetails] WHERE MdoId IN ({})",
             placeholders.join(",")
