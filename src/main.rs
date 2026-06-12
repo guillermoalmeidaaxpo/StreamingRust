@@ -105,7 +105,17 @@ async fn main() {
         config.execution.max_sql_connections,
     ).await.expect("Failed to initialize mapping resolver"));
     
-    let cmdp_repo = Arc::new(MssqlRepository::new(&config.datastores.cmdp_sql.dsn, config.execution.max_sql_connections, gate).await.expect("Failed to initialize MSSQL repository"));
+    let cmdp_repo = Arc::new(MssqlRepository::new(
+        &config.datastores.cmdp_sql.dsn,
+        config.execution.max_sql_connections,
+        gate.clone(),
+    ).await.expect("Failed to initialize CMDP repository"));
+
+    let mds_repo = Arc::new(MssqlRepository::new(
+        &config.datastores.mds_sql.dsn,
+        config.execution.max_sql_connections,
+        gate,
+    ).await.expect("Failed to initialize MDS repository"));
     
     let mut cassandra_hosts: Vec<String> = config.datastores.cassandra.data_centers.values()
         .flat_map(|v| v.clone())
@@ -118,7 +128,7 @@ async fn main() {
     let mut repositories: HashMap<SourceKind, Arc<dyn streaming_rust::application::ports::Repository>> = HashMap::new();
     repositories.insert(SourceKind::Cmdp, cmdp_repo.clone());
     repositories.insert(SourceKind::Cassandra, scylla_repo.clone());
-    repositories.insert(SourceKind::Hyperscale, cmdp_repo.clone());
+    repositories.insert(SourceKind::Hyperscale, mds_repo.clone());
 
     // 2. Initialize Validation Matrix
     let validator = Arc::new(RequestValidator::new());
