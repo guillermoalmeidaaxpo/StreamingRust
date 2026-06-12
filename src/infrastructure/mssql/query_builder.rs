@@ -245,7 +245,7 @@ impl HyperscaleQueryBuilder {
         include_deleted: bool,
         include_identifier: bool,
     ) -> Result<(String, HashMap<String, serde_json::Value>)> {
-        let view_name = hyperscale_view_name(mapping, requested_columns, version_as_of)?;
+        let view_name = hyperscale_view_name(mapping, filters, requested_columns, version_as_of)?;
         let value_column = hyperscale_value_column(mapping.data_category)?;
 
         let mut builder = SqlBuilder::new_with_json_column(mapping.clone(), value_column.clone());
@@ -407,8 +407,34 @@ fn order_columns(_columns: &[ColumnMapping]) -> Vec<String> {
     vec![]
 }
 
-fn hyperscale_view_name(mapping: &Mapping, _requested_columns: &[String], _version_as_of: Option<&chrono::DateTime<chrono::Utc>>) -> Result<String> {
-    Ok(mapping.views.latest_version.clone())
+fn hyperscale_view_name(
+    mapping: &Mapping,
+    filters: &FilterSet,
+    requested_columns: &[String],
+    version_as_of: Option<&chrono::DateTime<chrono::Utc>>,
+) -> Result<String> {
+    let has_created_on_column = requested_columns.iter().any(|c| c.eq_ignore_ascii_case("CreatedOn"));
+    let has_latest_global = filters.has_latest_global_filter;
+
+    if version_as_of.is_some() {
+        if has_latest_global {
+            Ok(mapping.views.get_by_created_on_latest_reference_time.clone())
+        } else {
+            Ok(mapping.views.get_by_created_on.clone())
+        }
+    } else if has_created_on_column {
+        if has_latest_global {
+            Ok(mapping.views.latest_reference_time_with_created_on.clone())
+        } else {
+            Ok(mapping.views.latest_version_with_created_on.clone())
+        }
+    } else {
+        if has_latest_global {
+            Ok(mapping.views.latest_reference_time.clone())
+        } else {
+            Ok(mapping.views.latest_version.clone())
+        }
+    }
 }
 
 fn hyperscale_value_column(category: DataCategory) -> Result<String> {

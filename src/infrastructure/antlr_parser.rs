@@ -45,9 +45,15 @@ impl FilterParser for AntlrFilterParser {
             tracing::info!("Parsing expression: {}", expr);
         }
 
+        let has_latest_global_filter = all_nodes.iter().any(|node| match node {
+            FilterNode::Comparison(c) => matches!(c.value.kind, FilterValueKind::LatestGlobal),
+            _ => false,
+        });
+
         Ok(FilterSet {
             expressions: expressions.to_vec(),
             nodes: all_nodes,
+            has_latest_global_filter,
         })
     }
 }

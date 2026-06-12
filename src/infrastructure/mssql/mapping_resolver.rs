@@ -213,13 +213,84 @@ impl MssqlMappingResolver {
                 mesap_id: None,
                 source: SourceKind::Hyperscale,
                 view_name: String::new(),
-                views: MappingViews {
-                    latest_version: first.get::<&str, _>("LatestVersionView").unwrap_or_default().to_string(),
-                    latest_reference_time: first.get::<&str, _>("LatestReferenceTimeView").unwrap_or_default().to_string(),
-                    latest_version_with_created_on: first.get::<&str, _>("LatestVersionWithCreatedOnView").unwrap_or_default().to_string(),
-                    latest_reference_time_with_created_on: first.get::<&str, _>("LatestReferenceTimeWithCreatedOnView").unwrap_or_default().to_string(),
-                    get_by_created_on: first.get::<&str, _>("GetByCreatedOnView").unwrap_or_default().to_string(),
-                    get_by_created_on_latest_reference_time: first.get::<&str, _>("GetByCreatedOnLatestReferenceTimeView").unwrap_or_default().to_string(),
+                views: {
+                    let cat_val = first.get::<&str, _>("CategoryName").unwrap_or_default();
+                    let mds_data_category = match cat_val.to_lowercase().as_str() {
+                        "curve" | "curves" => "Curve",
+                        "surface" | "surfaces" => "Surface",
+                        _ => "Timeseries",
+                    };
+
+                    let latest_version = {
+                        let v = first.get::<&str, _>("LatestVersionView").unwrap_or_default().trim().to_string();
+                        if v.is_empty() {
+                            format!("[Api].[VI_{}LatestVersion]", mds_data_category)
+                        } else {
+                            v
+                        }
+                    };
+
+                    let latest_reference_time = {
+                        let v = first.get::<&str, _>("LatestReferenceTimeView").unwrap_or_default().trim().to_string();
+                        if v.is_empty() {
+                            format!("[Api].[VI_{}LatestVersionLatestReferenceTime]", mds_data_category)
+                        } else {
+                            v
+                        }
+                    };
+
+                    let latest_version_with_created_on = {
+                        let v = first.get::<&str, _>("LatestVersionWithCreatedOnView").unwrap_or_default().trim().to_string();
+                        if v.is_empty() {
+                            if mds_data_category == "Timeseries" {
+                                latest_version.clone()
+                            } else {
+                                format!("[Api].[VI_{}LatestVersionWithCreatedOn]", mds_data_category)
+                            }
+                        } else {
+                            v
+                        }
+                    };
+
+                    let latest_reference_time_with_created_on = {
+                        let v = first.get::<&str, _>("LatestReferenceTimeWithCreatedOnView").unwrap_or_default().trim().to_string();
+                        if v.is_empty() {
+                            if mds_data_category == "Timeseries" {
+                                latest_reference_time.clone()
+                            } else {
+                                format!("[Api].[VI_{}LatestVersionLatestReferenceTimeWithCreatedOn]", mds_data_category)
+                            }
+                        } else {
+                            v
+                        }
+                    };
+
+                    let get_by_created_on = {
+                        let v = first.get::<&str, _>("GetByCreatedOnView").unwrap_or_default().trim().to_string();
+                        if v.is_empty() {
+                            format!("[Api].[TVF_Get{}ByCreatedOn]", mds_data_category)
+                        } else {
+                            v
+                        }
+                    };
+
+                    let get_by_created_on_latest_reference_time = {
+                        let v = first.get::<&str, _>("GetByCreatedOnLatestReferenceTimeView").unwrap_or_default().trim().to_string();
+                        if v.is_empty() {
+                            format!("[Api].[TVF_Get{}ByCreatedOnLatestReferenceTime]", mds_data_category)
+                        } else {
+                            v
+                        }
+                    };
+
+                    MappingViews {
+                        latest_version,
+                        latest_reference_time,
+                        latest_version_with_created_on,
+                        latest_reference_time_with_created_on,
+                        get_by_created_on,
+                        get_by_created_on_latest_reference_time,
+                    }
                 },
                 index_field: String::new(),
                 resolution: first.get::<&str, _>("ResolutionISO").unwrap_or_default().to_string(),

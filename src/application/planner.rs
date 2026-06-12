@@ -90,7 +90,7 @@ impl Planner for DefaultPlanner {
             let raw_filters = if let Some(f) = &request.filters {
                 self.parser.parse(&f.expressions, &f.filter_time_zone).await?
             } else {
-                crate::domain::FilterSet { expressions: vec![], nodes: vec![] }
+                crate::domain::FilterSet { expressions: vec![], nodes: vec![], has_latest_global_filter: false }
             };
 
             // 15.1 Requirement: TransactionalDataCommandParser -> FilterProvider.GetFilters

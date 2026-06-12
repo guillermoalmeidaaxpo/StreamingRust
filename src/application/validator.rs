@@ -255,7 +255,7 @@ impl DataRowsNumberValidator {
             let parsed_filters = if let Some(f) = &req.filters {
                 self.parser.parse(&f.expressions, &f.filter_time_zone).await?
             } else {
-                crate::domain::FilterSet { expressions: vec![], nodes: vec![] }
+                crate::domain::FilterSet { expressions: vec![], nodes: vec![], has_latest_global_filter: false }
             };
 
             let estimate = self.stats_service.estimate_rows(&req.ids, &parsed_filters).await?;

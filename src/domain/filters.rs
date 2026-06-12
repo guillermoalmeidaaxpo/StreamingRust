@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 pub struct FilterSet {
     pub expressions: Vec<String>,
     pub nodes: Vec<FilterNode>,
+    #[serde(default)]
+    pub has_latest_global_filter: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
