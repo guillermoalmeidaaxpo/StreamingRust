@@ -445,12 +445,101 @@ fn hyperscale_value_column(category: DataCategory) -> Result<String> {
     }
 }
 
-fn hyperscale_select_columns(_columns: &[ColumnMapping], _requested_columns: &[String], _value_column: &str, _include_identifier: bool) -> Vec<String> {
-    vec!["[d].*".to_string()]
+fn wrap_json_value_with_cast(hyperscale_column: &str, mds_field_name: &str, data_type: Option<&str>, alias: Option<&str>) -> String {
+    let json_value = format!("JSON_VALUE({}, '$.\"{}\"')", hyperscale_column, mds_field_name);
+    let wrapped_value = match data_type.map(|s| s.to_lowercase()).as_deref() {
+        Some("int") => format!("CAST({} AS INT)", json_value),
+        Some("number") | Some("decimal") => format!("CAST({} AS FLOAT)", json_value),
+        _ => json_value,
+    };
+    if let Some(a) = alias {
+        format!("{} AS {}", wrapped_value, a)
+    } else {
+        wrapped_value
+    }
 }
 
-fn hyperscale_order_columns(_columns: &[ColumnMapping], _value_column: &str, _include_identifier: bool) -> Vec<String> {
-    vec![]
+fn hyperscale_select_columns(columns: &[ColumnMapping], requested_columns: &[String], value_column: &str, include_identifier: bool) -> Vec<String> {
+    let mut key_cols = Vec::new();
+    for col in columns {
+        if col.is_key {
+            let is_identifier_or_mdo_id = col.mds_name.eq_ignore_ascii_case("Identifier") || col.mds_name.eq_ignore_ascii_case("MdoId");
+            if include_identifier || !is_identifier_or_mdo_id {
+                let col_name = if col.mds_name.eq_ignore_ascii_case("Identifier") {
+                    "MdoId".to_string()
+                } else {
+                    col.mds_name.clone()
+                };
+                key_cols.push(col_name);
+            }
+        }
+    }
+
+    let mut val_cols = Vec::new();
+    let mut i = 0;
+    
+    let mut is_created_on_only = false;
+    if requested_columns.len() == 1 && requested_columns[0].eq_ignore_ascii_case("CreatedOn") {
+        is_created_on_only = true;
+    }
+
+    let effective_requested_cols = if requested_columns.is_empty() || is_created_on_only {
+        columns.iter()
+            .filter(|c| !c.is_key)
+            .map(|c| c.mds_name.clone())
+            .collect()
+    } else {
+        requested_columns.to_vec()
+    };
+
+    let projection_columns: Vec<&str> = effective_requested_cols.iter()
+        .filter(|&c| !c.eq_ignore_ascii_case("CreatedOn"))
+        .map(|s| s.as_str())
+        .collect();
+
+    for col in columns {
+        if !col.is_key && projection_columns.iter().any(|&pc| pc.eq_ignore_ascii_case(&col.mds_name)) {
+            let wrapped = wrap_json_value_with_cast(value_column, &col.mds_name, Some(&col.data_type), Some(&format!("Property{}", i)));
+            val_cols.push(wrapped);
+            i += 1;
+        }
+    }
+
+    let mut selected = Vec::new();
+    selected.extend(key_cols);
+    selected.extend(val_cols);
+
+    let has_created_on = requested_columns.iter().any(|c| c.eq_ignore_ascii_case("CreatedOn")) || is_created_on_only;
+    if has_created_on {
+        selected.push("CreatedOn".to_string());
+    }
+
+    selected
+}
+
+fn hyperscale_order_columns(columns: &[ColumnMapping], _value_column: &str, _include_identifier: bool) -> Vec<String> {
+    let mut order_cols: Vec<ColumnMapping> = columns.iter()
+        .filter(|c| c.order_priority.is_some())
+        .cloned()
+        .collect();
+    
+    order_cols.sort_by_key(|c| c.order_priority.unwrap());
+
+    let mut result: Vec<String> = order_cols.iter()
+        .map(|c| {
+            if c.mds_name.eq_ignore_ascii_case("Identifier") {
+                "MdoId".to_string()
+            } else {
+                c.mds_name.clone()
+            }
+        })
+        .collect();
+
+    if result.is_empty() {
+        result.push("ReferenceTime".to_string());
+    }
+
+    result
 }
 
 fn to_sql_server_timezone_name(tz: &str) -> String {

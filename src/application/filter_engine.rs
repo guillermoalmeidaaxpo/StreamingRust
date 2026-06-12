@@ -54,18 +54,22 @@ impl FilterProvider {
             }
         }
 
-        let needs_default = (runtime_filters.nodes.is_empty() || has_latest_global) && !has_rank_over && !has_latest;
+        // Always remove the LatestGlobal filter from runtime_filters.nodes,
+        // because it is a directives flag (used to choose LatestReferenceTimeView) and not a real column comparison.
+        runtime_filters.nodes.retain(|node| {
+            if let FilterNode::Comparison(c) = node {
+                !matches!(c.value.kind, FilterValueKind::LatestGlobal)
+            } else {
+                true
+            }
+        });
+
+        let needs_default = (runtime_filters.nodes.is_empty() || has_latest_global) 
+            && !has_rank_over 
+            && !has_latest 
+            && !mapping.hyperscale_id.is_some();
 
         if needs_default {
-            // Remove any existing LatestGlobal comparison node
-            runtime_filters.nodes.retain(|node| {
-                if let FilterNode::Comparison(c) = node {
-                    !matches!(c.value.kind, FilterValueKind::LatestGlobal)
-                } else {
-                    true
-                }
-            });
-
             // Get limits
             let limits = resolver.get_filter_limits(&[id], category).await?;
             if let Some(max_ref) = limits.max_reference_time {
