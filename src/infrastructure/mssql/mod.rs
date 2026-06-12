@@ -52,9 +52,15 @@ impl ManageConnection for ConnectionManager {
         let config = self.build_config().await
             .map_err(|e| tiberius::error::Error::Protocol(format!("Failed to build config: {}", e).into()))?;
         let tcp = TcpStream::connect(config.get_addr()).await
-            .map_err(tiberius::error::Error::Io)?;
+            .map_err(|e| tiberius::error::Error::Io {
+                kind: e.kind(),
+                message: e.to_string(),
+            })?;
         tcp.set_nodelay(true)
-            .map_err(tiberius::error::Error::Io)?;
+            .map_err(|e| tiberius::error::Error::Io {
+                kind: e.kind(),
+                message: e.to_string(),
+            })?;
         let client = Client::connect(config, tcp.compat_write()).await?;
         Ok(client)
     }
