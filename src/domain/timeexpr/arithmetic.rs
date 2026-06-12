@@ -31,22 +31,9 @@ pub fn apply_arithmetic(dt: DateTime<Utc>, operator: &str, period: &str) -> Resu
 
         let mut res = dt;
 
-        if years != 0 {
-            let y = years.abs() as u32;
-            if multiplier == 1 {
-                res = res + chrono::Years::new(y);
-            } else {
-                res = res - chrono::Years::new(y);
-            }
-        }
-
-        if months != 0 {
-            let m = months.abs() as u32;
-            if multiplier == 1 {
-                res = res + chrono::Months::new(m);
-            } else {
-                res = res - chrono::Months::new(m);
-            }
+        if years != 0 || months != 0 {
+            let total_months = (years * 12 + months) * multiplier as i32;
+            res = add_months(res, total_months);
         }
 
         let total_seconds = days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds;
@@ -64,6 +51,48 @@ pub fn apply_arithmetic(dt: DateTime<Utc>, operator: &str, period: &str) -> Resu
         "-" => Ok(dt - amount),
         _ => Err(anyhow!("Invalid arithmetic operator: {}", operator)),
     }
+}
+
+fn add_months(dt: DateTime<Utc>, months: i32) -> DateTime<Utc> {
+    let year = dt.year();
+    let month = dt.month() as i32;
+    let day = dt.day();
+    
+    let total_months = (year * 12) + (month - 1) + months;
+    let mut new_year = total_months / 12;
+    let mut new_month = (total_months % 12) + 1;
+    if new_month <= 0 {
+        new_month += 12;
+        new_year -= 1;
+    }
+    
+    let max_days = days_in_month(new_year, new_month as u32);
+    let new_day = std::cmp::min(day, max_days);
+    
+    let naive_date = chrono::NaiveDate::from_ymd_opt(new_year, new_month as u32, new_day).unwrap();
+    let naive_time = dt.time();
+    let naive_datetime = naive_date.and_time(naive_time);
+    
+    DateTime::<Utc>::from_naive_utc_and_offset(naive_datetime, Utc)
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => panic!("Invalid month"),
+    }
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 fn parse_period(period: &str) -> Result<Duration> {
