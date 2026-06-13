@@ -1,6 +1,6 @@
 use crate::domain::{ExecutableQuery, SourceKind, DataCategory, ColumnMapping, Mapping};
 use crate::application::ports::Command;
-use crate::domain::filters::{FilterSet, FilterNode, ComparisonFilter, FilterValue};
+use crate::domain::filters::{FilterSet, FilterNode, ComparisonFilter, FilterValue, FilterValueKind};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
@@ -61,8 +61,23 @@ impl CMDPQueryBuilder {
 
         let mut where_clauses = vec![format!("{} = @id", qualify(CMDP_IDENTIFIER_COLUMN))];
         
-        let filter_predicates = builder.filter_predicates(&command.filters.nodes)?;
+        let filtered_nodes: Vec<FilterNode> = command.filters.nodes.iter()
+            .filter(|node| {
+                if let FilterNode::Comparison(c) = node {
+                    c.value.kind != FilterValueKind::Latest
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+
+        let filter_predicates = builder.filter_predicates(&filtered_nodes)?;
         where_clauses.extend(filter_predicates);
+
+        if get_latest_filter(&command.filters).is_some() {
+            where_clauses.push("ReferenceTime = (SELECT MaxReferenceTimeBefore from LatestReference)".to_string());
+        }
 
         if let Some(range) = &command.index_range {
             if !mapping.index_field.trim().is_empty() {
@@ -235,6 +250,11 @@ impl CMDPQueryBuilder {
             }
         }
 
+        let cte = build_latest_cte(mapping, &command.filters, None, false);
+        if !cte.is_empty() {
+            final_statement = format!("{}{}", cte, final_statement);
+        }
+
         Ok((final_statement, builder.parameters))
     }
 }
@@ -310,8 +330,23 @@ impl HyperscaleQueryBuilder {
             }
         }
 
-        let filter_predicates = builder.filter_predicates(&filters.nodes)?;
+        let filtered_nodes: Vec<FilterNode> = filters.nodes.iter()
+            .filter(|node| {
+                if let FilterNode::Comparison(c) = node {
+                    c.value.kind != FilterValueKind::Latest
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+
+        let filter_predicates = builder.filter_predicates(&filtered_nodes)?;
         where_clauses.extend(filter_predicates);
+
+        if get_latest_filter(filters).is_some() {
+            where_clauses.push("ReferenceTime = (SELECT MaxReferenceTimeBefore from LatestReference)".to_string());
+        }
 
         let statement = if let Some(aggregations) = &command.aggregations {
             let select_cols = build_select_columns(
@@ -372,7 +407,13 @@ impl HyperscaleQueryBuilder {
             sql
         };
 
-        Ok((statement, builder.parameters))
+        let cte = build_latest_cte(mapping, filters, version_as_of, true);
+        let mut final_statement = statement;
+        if !cte.is_empty() {
+            final_statement = format!("{}{}", cte, final_statement);
+        }
+
+        Ok((final_statement, builder.parameters))
     }
 }
 
@@ -1028,4 +1069,63 @@ fn build_order_by_clause(
     }
 
     Ok(order_by_parts.join(", "))
+}
+
+fn get_latest_filter(filters: &FilterSet) -> Option<&ComparisonFilter> {
+    for node in &filters.nodes {
+        if let FilterNode::Comparison(c) = node {
+            if c.value.kind == FilterValueKind::Latest {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
+fn build_latest_cte(
+    mapping: &Mapping,
+    filters: &FilterSet,
+    version_as_of: Option<&chrono::DateTime<chrono::Utc>>,
+    is_hyperscale: bool,
+) -> String {
+    if let Some(latest_filter) = get_latest_filter(filters) {
+        let comparer = &latest_filter.operator;
+        let input_ref_time = &latest_filter.value.raw;
+        let id_column = if is_hyperscale { "MdoId" } else { "TimeSeries_FID" };
+
+        if is_hyperscale && version_as_of.is_some() {
+            let category_str = match mapping.data_category {
+                DataCategory::Curves => "Curve",
+                DataCategory::Surfaces => "Surface",
+                DataCategory::TimeSeries => "Timeseries",
+            };
+            format!(
+                "WITH LatestReference AS (\n    \
+                 SELECT TOP 1 ReferenceTime AS MaxReferenceTimeBefore\n    \
+                 FROM (\n        \
+                     SELECT ReferenceTime, MAX(CreatedOn) AS CreatedOn\n        \
+                     FROM Core.{}Version\n        \
+                     WHERE CreatedOn <= @CreatedOn\n          \
+                       AND {} = @{}\n          \
+                       AND ReferenceTime {} '{}'\n        \
+                     GROUP BY ReferenceTime\n    \
+                 ) AS VersionedRefs\n    \
+                 ORDER BY ReferenceTime DESC\n\
+                )\n",
+                category_str, id_column, id_column, comparer, input_ref_time
+            )
+        } else {
+            format!(
+                "WITH LatestReference AS (\n    \
+                 SELECT MAX(ReferenceTime) AS MaxReferenceTimeBefore\n    \
+                 FROM {}\n    \
+                 WHERE ReferenceTime {} '{}'\n      \
+                   AND {} = {}\n\
+                )\n",
+                mapping.views.latest_version, comparer, input_ref_time, id_column, mapping.id
+            )
+        }
+    } else {
+        String::new()
+    }
 }
