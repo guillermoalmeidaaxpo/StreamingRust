@@ -231,23 +231,29 @@ impl<'de> Deserialize<'de> for TimeRange {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
+        if s.trim().is_empty() {
+            return Err(serde::de::Error::custom("TimeRange string cannot be empty"));
+        }
         if !s.starts_with("TimeSpan(") || !s.ends_with(')') {
-            return Err(serde::de::Error::custom("Invalid TimeRange format. Expected TimeSpan(T##:##:##, T##:##:##)"));
+            return Err(serde::de::Error::custom(format!("Invalid TimeRange format. Expected 'TimeSpan(T##:##:##, T##:##:##)', got '{}'", s)));
         }
         let content = &s[9..s.len() - 1];
         let parts: Vec<&str> = content.split(',').map(|p| p.trim()).collect();
         if parts.len() != 2 {
-            return Err(serde::de::Error::custom("TimeRange must have exactly 2 time values"));
+            return Err(serde::de::Error::custom(format!("TimeRange must have exactly 2 time values (start and end), got {}", parts.len())));
         }
         let start_str = parts[0];
         let end_str = parts[1];
-        if !start_str.starts_with('T') || !end_str.starts_with('T') {
-            return Err(serde::de::Error::custom("Invalid time format. Expected T prefix"));
+        if !start_str.starts_with('T') {
+            return Err(serde::de::Error::custom("Invalid start time in TimeRange. Expected format: T##:##:## (T prefix is required)"));
         }
-        let start = NaiveTime::parse_from_str(&start_str[1..], "%H:%M:%S")
-            .map_err(|e| serde::de::Error::custom(format!("Invalid start time: {}", e)))?;
-        let end = NaiveTime::parse_from_str(&end_str[1..], "%H:%M:%S")
-            .map_err(|e| serde::de::Error::custom(format!("Invalid end time: {}", e)))?;
+        if !end_str.starts_with('T') {
+            return Err(serde::de::Error::custom("Invalid end time in TimeRange. Expected format: T##:##:## (T prefix is required)"));
+        }
+        let start = NaiveTime::parse_from_str(&start_str[1..], "%H:%M:%S%.f")
+            .map_err(|_| serde::de::Error::custom("Invalid start time in TimeRange. Expected format: T##:##:##"))?;
+        let end = NaiveTime::parse_from_str(&end_str[1..], "%H:%M:%S%.f")
+            .map_err(|_| serde::de::Error::custom("Invalid end time in TimeRange. Expected format: T##:##:##"))?;
         Ok(TimeRange { start, end })
     }
 }
@@ -257,7 +263,7 @@ impl Serialize for TimeRange {
     where
         S: Serializer,
     {
-        let s = format!("TimeSpan(T{}, T{})", self.start.format("%H:%M:%S"), self.end.format("%H:%M:%S"));
+        let s = format!("TimeSpan(T{}, T{})", self.start.format("%H:%M:%S%.f"), self.end.format("%H:%M:%S%.f"));
         serializer.serialize_str(&s)
     }
 }

@@ -95,7 +95,7 @@ fn validate_shape(shape: &Shape) -> Result<()> {
         }
         if !invalid_months.is_empty() {
             return Err(anyhow!(
-                "Invalid month abbreviation(s): {}. Valid values are: {}",
+                "Invalid month abbreviation(s): {}. Valid values are: {}.",
                 invalid_months.join(", "),
                 VALID_MONTHS.join(", ")
             ));
@@ -129,7 +129,7 @@ fn validate_shape(shape: &Shape) -> Result<()> {
         }
         if !invalid_days.is_empty() {
             return Err(anyhow!(
-                "Invalid day abbreviation(s): {}. Valid values are: {}",
+                "Invalid day abbreviation(s): {}. Valid values are: {}.",
                 invalid_days.join(", "),
                 VALID_DAYS.join(", ")
             ));

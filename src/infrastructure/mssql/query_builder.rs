@@ -79,7 +79,7 @@ impl CMDPQueryBuilder {
             .map(|c| c.source_name.as_str())
             .unwrap_or("DeliveryStart");
 
-        let delivery_start_expr = if command.filter_time_zone.is_empty() || command.filter_time_zone.eq_ignore_ascii_case("UTC") {
+        let delivery_start_expr = if is_utc_equivalent(&command.filter_time_zone) {
             qualify(delivery_start_column)
         } else {
             let sql_tz = to_sql_server_timezone_name(&command.filter_time_zone);
@@ -632,12 +632,33 @@ fn to_sql_server_timezone_name(tz: &str) -> String {
     }
     match tz.to_lowercase().as_str() {
         "europe/zurich" => "Central European Standard Time".to_string(),
-        "europe/london" => "GMT Standard Time".to_string(),
-        "europe/paris" => "Romance Standard Time".to_string(),
-        "europe/berlin" => "W. Europe Standard Time".to_string(),
-        "america/new_york" => "Eastern Standard Time".to_string(),
-        "america/chicago" => "Central Standard Time".to_string(),
+        "europe/london" | "europe/dublin" => "GMT Standard Time".to_string(),
+        "europe/paris" | "europe/rome" | "europe/madrid" | "europe/amsterdam" | "europe/brussels" | "europe/vienna" => "Romance Standard Time".to_string(),
+        "europe/berlin" | "europe/stockholm" | "europe/oslo" | "europe/copenhagen" | "europe/budapest" | "europe/warsaw" | "europe/prague" => "W. Europe Standard Time".to_string(),
+        "europe/athens" | "europe/bucharest" | "europe/helsinki" | "europe/kiev" | "europe/sofia" | "asia/istanbul" | "asia/nicosia" => "GTB Standard Time".to_string(),
+        "america/new_york" | "america/detroit" | "america/toronto" => "Eastern Standard Time".to_string(),
+        "america/chicago" | "america/mexico_city" | "america/winnipeg" => "Central Standard Time".to_string(),
+        "america/denver" | "america/phoenix" | "america/edmonton" => "Mountain Standard Time".to_string(),
+        "america/los_angeles" | "america/vancouver" => "Pacific Standard Time".to_string(),
+        "america/anchorage" => "Alaskan Standard Time".to_string(),
+        "pacific/honolulu" => "Hawaiian Standard Time".to_string(),
+        "america/sao_paulo" => "E. South America Standard Time".to_string(),
+        "america/buenos_aires" => "Argentina Standard Time".to_string(),
         "asia/tokyo" => "Tokyo Standard Time".to_string(),
+        "asia/singapore" => "Singapore Standard Time".to_string(),
+        "asia/hong_kong" => "China Standard Time".to_string(),
+        "asia/kolkata" => "India Standard Time".to_string(),
+        "asia/karachi" => "Pakistan Standard Time".to_string(),
+        "asia/bangkok" | "asia/jakarta" => "SE Asia Standard Time".to_string(),
+        "asia/seoul" => "Korea Standard Time".to_string(),
+        "australia/sydney" | "australia/melbourne" | "australia/brisbane" => "AUS Eastern Standard Time".to_string(),
+        "australia/adelaide" => "Cen. Australia Standard Time".to_string(),
+        "australia/perth" => "W. Australia Standard Time".to_string(),
+        "pacific/auckland" => "New Zealand Standard Time".to_string(),
+        "africa/nairobi" => "E. Africa Standard Time".to_string(),
+        "africa/johannesburg" => "South Africa Standard Time".to_string(),
+        "africa/cairo" => "Egypt Standard Time".to_string(),
+        "africa/casablanca" => "Morocco Standard Time".to_string(),
         _ => tz.to_string(),
     }
 }

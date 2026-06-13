@@ -41,7 +41,7 @@ impl Repository for MssqlRepository {
 
         let mut conn = self.pool.get().await?;
         let mut tib_query = tiberius::Query::new(statement_prepared);
-        for val in &args {
+        for (name, val) in &args {
             match val {
                 serde_json::Value::Null => {
                     tib_query.bind(Option::<&str>::None);
@@ -51,12 +51,26 @@ impl Repository for MssqlRepository {
                 }
                 serde_json::Value::Number(num) => {
                     if let Some(i) = num.as_i64() {
-                        tib_query.bind(i);
+                        if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+                            tib_query.bind(i as i32);
+                        } else {
+                            tib_query.bind(i);
+                        }
                     } else if let Some(f) = num.as_f64() {
                         tib_query.bind(f);
                     }
                 }
                 serde_json::Value::String(s) => {
+                    if name.starts_with('t') && (name.ends_with("_start") || name.ends_with("_end")) {
+                        if let Ok(t) = chrono::NaiveTime::parse_from_str(s, "%H:%M:%S%.f") {
+                            tib_query.bind(t);
+                            continue;
+                        }
+                    }
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                        tib_query.bind(dt);
+                        continue;
+                    }
                     tib_query.bind(s.as_str());
                 }
                 serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
@@ -96,7 +110,7 @@ impl Repository for MssqlRepository {
         let stream = try_stream! {
             let mut conn = pool.get().await?;
             let mut tib_query = tiberius::Query::new(&statement_prepared);
-            for val in &args {
+            for (name, val) in &args {
                 match val {
                     serde_json::Value::Null => {
                         tib_query.bind(Option::<&str>::None);
@@ -106,12 +120,26 @@ impl Repository for MssqlRepository {
                     }
                     serde_json::Value::Number(num) => {
                         if let Some(i) = num.as_i64() {
-                            tib_query.bind(i);
+                            if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+                                tib_query.bind(i as i32);
+                            } else {
+                                tib_query.bind(i);
+                            }
                         } else if let Some(f) = num.as_f64() {
                             tib_query.bind(f);
                         }
                     }
                     serde_json::Value::String(s) => {
+                        if name.starts_with('t') && (name.ends_with("_start") || name.ends_with("_end")) {
+                            if let Ok(t) = chrono::NaiveTime::parse_from_str(s, "%H:%M:%S%.f") {
+                                tib_query.bind(t);
+                                continue;
+                            }
+                        }
+                        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                            tib_query.bind(dt);
+                            continue;
+                        }
                         tib_query.bind(s.as_str());
                     }
                     serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
@@ -141,7 +169,7 @@ impl Repository for MssqlRepository {
     }
 }
 
-fn prepare_query(statement: &str, params: &HashMap<String, serde_json::Value>) -> (String, Vec<serde_json::Value>) {
+fn prepare_query(statement: &str, params: &HashMap<String, serde_json::Value>) -> (String, Vec<(String, serde_json::Value)>) {
     let re = Regex::new(r"@([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
     let mut new_statement = String::new();
     let mut args = Vec::new();
@@ -154,7 +182,7 @@ fn prepare_query(statement: &str, params: &HashMap<String, serde_json::Value>) -
         new_statement.push_str(&statement[last_idx..mat.start()]);
 
         if let Some(val) = params.get(name) {
-            args.push(val.clone());
+            args.push((name.to_string(), val.clone()));
             let param_placeholder = format!("@p{}", args.len());
             new_statement.push_str(&param_placeholder);
         } else {
