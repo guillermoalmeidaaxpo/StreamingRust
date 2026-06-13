@@ -166,7 +166,7 @@ impl Transformations {
             return None;
         }
 
-        let group_by = self.keys.as_ref().map(|keys| {
+        let group_by: Vec<AggregationColumn> = self.keys.as_ref().map(|keys| {
             keys.iter().map(|key| {
                 let parts: Vec<&str> = key.splitn(2, '=').collect();
                 let expr = normalize_aggregation_expression(parts[0].trim());

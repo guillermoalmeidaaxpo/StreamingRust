@@ -67,13 +67,15 @@ impl Repository for MssqlRepository {
 
         let mut stream = tib_query.query(&mut conn).await?;
         let mut items = Vec::new();
-        while let Some(row_res) = stream.next().await {
-            let row = row_res?;
-            let fields = map_tiberius_row(&row);
-            items.push(DataItem {
-                id: query.id,
-                fields,
-            });
+        while let Some(item_res) = stream.next().await {
+            let item = item_res?;
+            if let tiberius::QueryItem::Row(row) = item {
+                let fields = map_tiberius_row(&row);
+                items.push(DataItem {
+                    id: query.id,
+                    fields,
+                });
+            }
         }
 
         // 2. Release global connection slot
@@ -120,13 +122,15 @@ impl Repository for MssqlRepository {
 
             let mut stream = tib_query.query(&mut conn).await?;
 
-            while let Some(item) = stream.next().await {
-                let row = item?;
-                let fields = map_tiberius_row(&row);
-                yield DataItem {
-                    id,
-                    fields,
-                };
+            while let Some(item_res) = stream.next().await {
+                let item = item_res?;
+                if let tiberius::QueryItem::Row(row) = item {
+                    let fields = map_tiberius_row(&row);
+                    yield DataItem {
+                        id,
+                        fields,
+                    };
+                }
             }
 
             // 2. Release global connection slot when stream completes

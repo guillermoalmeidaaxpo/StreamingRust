@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::sync::Arc;
-use crate::domain::{Request, SourceKind};
+use crate::domain::{Request, SourceKind, DataCategory};
 use super::ports::{Planner, Plan, PlanStep, RequestContext, MappingResolver, FilterParser, Command};
 use super::strategy::StrategySelector;
 use super::quote_index::QuoteIndexGenerator;
