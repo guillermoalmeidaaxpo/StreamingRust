@@ -103,9 +103,9 @@ impl CassandraQueryBuilder {
         
         let columns = "ts_id, qte_y, qte_m, qte_d, quote_index, publish_time, del_y, del_m, del_d, del_h, del_min, del_offset, value";
 
-        // Filter Logic Stub (similar to Go's buildDeliveryFilters)
-        let timezone = "Europe/Zurich"; // Should come from mapping logic
-        let (delivery_cql, mut delivery_arguments, no_rows) = self.build_delivery_filters(&command.filters.nodes, timezone, quote_indices[0])?;
+        // Resolve timezone dynamically
+        let timezone = crate::application::strategy::StrategySelector::get_cassandra_timezone(mapping.id);
+        let (delivery_cql, mut delivery_arguments, no_rows) = self.build_delivery_filters(&command.filters.nodes, &timezone, quote_indices[0])?;
 
         if force_no_rows {
             where_clauses.push("(del_y, del_m, del_d, del_h) = (?, ?, ?, ?)".to_string());
@@ -145,132 +145,48 @@ impl CassandraQueryBuilder {
     }
 
     fn build_delivery_filters(&self, nodes: &[FilterNode], timezone: &str, quote_index: i32) -> Result<(String, Vec<serde_json::Value>, bool)> {
-        if nodes.is_empty() {
-            return Ok((String::new(), vec![], false));
-        }
-
         let tz: Tz = match timezone.to_uppercase().as_str() {
             "" | "CET" => chrono_tz::Europe::Zurich,
             "UTC" => chrono_tz::UTC,
             _ => timezone.parse().map_err(|_| anyhow!("invalid Cassandra timezone {}", timezone))?,
         };
 
-        let mut lower: Option<DateTime<Utc>> = None;
-        let mut lower_inc = false;
-        let mut upper: Option<DateTime<Utc>> = None;
-        let mut upper_inc = false;
-        let mut found = false;
+        let delivery_win = build_delivery_window(nodes, &tz, timezone)?;
+        let rdp_win = build_rdp_window(nodes, quote_index)?;
 
-        // Simplified Delivery Start/End bounds tracker
-        for node in nodes {
-            if let FilterNode::Comparison(f) = node {
-                let is_delivery = f.field.eq_ignore_ascii_case("DeliveryStart") || f.field.eq_ignore_ascii_case("DeliveryEnd");
-                if !is_delivery {
-                    continue;
-                }
-                found = true;
-
-                if let Ok(dt) = DateTime::parse_from_rfc3339(&f.value.raw) {
-                    let local = dt.with_timezone(&tz);
-                    // Extract local Hour
-                    let mut local_utc_equiv = Utc.with_ymd_and_hms(local.year(), local.month(), local.day(), local.hour(), 0, 0).unwrap();
-                    
-                    if f.field.eq_ignore_ascii_case("DeliveryEnd") {
-                        local_utc_equiv -= chrono::Duration::hours(1);
-                    }
-
-                    match f.operator.as_str() {
-                        "=" => {
-                            lower = Some(local_utc_equiv); lower_inc = true;
-                            upper = Some(local_utc_equiv); upper_inc = true;
-                        }
-                        ">=" => {
-                            if lower.is_none() || local_utc_equiv > lower.unwrap() {
-                                lower = Some(local_utc_equiv); lower_inc = true;
-                            }
-                        }
-                        ">" => {
-                            if lower.is_none() || local_utc_equiv > lower.unwrap() {
-                                lower = Some(local_utc_equiv); lower_inc = false;
-                            }
-                        }
-                        "<=" => {
-                            if upper.is_none() || local_utc_equiv < upper.unwrap() {
-                                upper = Some(local_utc_equiv); upper_inc = true;
-                            }
-                        }
-                        "<" => {
-                            if upper.is_none() || local_utc_equiv < upper.unwrap() {
-                                upper = Some(local_utc_equiv); upper_inc = false;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        // RelativeDeliveryPeriod tracker
-        let ref_date = Utc.with_ymd_and_hms(
-            quote_index / 10000, 
-            ((quote_index / 100) % 100) as u32, 
-            (quote_index % 100) as u32, 
-            0, 0, 0
-        ).unwrap();
-        for node in nodes {
-            if let FilterNode::Comparison(f) = node {
-                if f.field.eq_ignore_ascii_case("RelativeDeliveryPeriod") {
-                    found = true;
-                    if let Ok(hours) = f.value.raw.parse::<i64>() {
-                        let local_utc_equiv = ref_date + chrono::Duration::hours(hours);
-                        match f.operator.as_str() {
-                            "=" => {
-                                lower = Some(local_utc_equiv); lower_inc = true;
-                                upper = Some(local_utc_equiv); upper_inc = true;
-                            }
-                            ">=" => {
-                                if lower.is_none() || local_utc_equiv > lower.unwrap() {
-                                    lower = Some(local_utc_equiv); lower_inc = true;
-                                }
-                            }
-                            ">" => {
-                                if lower.is_none() || local_utc_equiv > lower.unwrap() {
-                                    lower = Some(local_utc_equiv); lower_inc = false;
-                                }
-                            }
-                            "<=" => {
-                                if upper.is_none() || local_utc_equiv < upper.unwrap() {
-                                    upper = Some(local_utc_equiv); upper_inc = true;
-                                }
-                            }
-                            "<" => {
-                                if upper.is_none() || local_utc_equiv < upper.unwrap() {
-                                    upper = Some(local_utc_equiv); upper_inc = false;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-
-        if !found {
+        if delivery_win.is_none() && rdp_win.is_none() {
             return Ok((String::new(), vec![], false));
         }
 
-        // Check empty window
-        if let (Some(l), Some(u)) = (lower, upper) {
-            if l > u || (l == u && (!lower_inc || !upper_inc)) {
-                return Ok((String::new(), vec![], true)); // Empty
-            }
+        let unified = match (delivery_win, rdp_win) {
+            (None, Some(r)) => Some(r),
+            (Some(d), None) => Some(d),
+            (Some(d), Some(r)) => intersect(d, r),
+            (None, None) => unreachable!(),
+        };
+
+        let unified = match unified {
+            Some(u) if !u.is_empty() => u,
+            _ => return Ok((String::new(), vec![], true)), // empty range, force no rows
+        };
+
+        if unified.is_point() {
+            let l = unified.lower.unwrap();
+            let cql = "(del_y, del_m, del_d, del_h) = (?, ?, ?, ?)".to_string();
+            let args = vec![
+                serde_json::Value::Number((l.year() as i16).into()),
+                serde_json::Value::Number((l.month() as i8).into()),
+                serde_json::Value::Number((l.day() as i8).into()),
+                serde_json::Value::Number((l.hour() as i8).into()),
+            ];
+            return Ok((cql, args, false));
         }
 
         let mut clauses = Vec::new();
         let mut args = Vec::new();
 
-        if let Some(l) = lower {
-            let op = if lower_inc { ">=" } else { ">" };
+        if let Some(l) = unified.lower {
+            let op = if unified.lower_inclusive { ">=" } else { ">" };
             clauses.push(format!("(del_y, del_m, del_d, del_h) {} (?, ?, ?, ?)", op));
             args.extend(vec![
                 serde_json::Value::Number((l.year() as i16).into()),
@@ -280,8 +196,8 @@ impl CassandraQueryBuilder {
             ]);
         }
 
-        if let Some(u) = upper {
-            let op = if upper_inc { "<=" } else { "<" };
+        if let Some(u) = unified.upper {
+            let op = if unified.upper_inclusive { "<=" } else { "<" };
             clauses.push(format!("(del_y, del_m, del_d, del_h) {} (?, ?, ?, ?)", op));
             args.extend(vec![
                 serde_json::Value::Number((u.year() as i16).into()),
@@ -294,3 +210,245 @@ impl CassandraQueryBuilder {
         Ok((clauses.join(" AND "), args, false))
     }
 }
+
+#[derive(Debug, Copy, Clone)]
+struct LocalHourWindow {
+    lower: Option<chrono::NaiveDateTime>,
+    lower_inclusive: bool,
+    upper: Option<chrono::NaiveDateTime>,
+    upper_inclusive: bool,
+}
+
+impl LocalHourWindow {
+    fn is_empty(&self) -> bool {
+        if let (Some(l), Some(u)) = (self.lower, self.upper) {
+            l > u || (l == u && !(self.lower_inclusive && self.upper_inclusive))
+        } else {
+            false
+        }
+    }
+
+    fn is_point(&self) -> bool {
+        if let (Some(l), Some(u)) = (self.lower, self.upper) {
+            l == u && self.lower_inclusive && self.upper_inclusive
+        } else {
+            false
+        }
+    }
+}
+
+fn tighten_lower(lo: &mut Option<chrono::NaiveDateTime>, lo_inc: &mut bool, cand: chrono::NaiveDateTime, cand_inc: bool) {
+    match lo {
+        None => {
+            *lo = Some(cand);
+            *lo_inc = cand_inc;
+        }
+        Some(current) => {
+            if cand > *current {
+                *lo = Some(cand);
+                *lo_inc = cand_inc;
+            } else if cand == *current {
+                *lo_inc = *lo_inc && cand_inc;
+            }
+        }
+    }
+}
+
+fn tighten_upper(up: &mut Option<chrono::NaiveDateTime>, up_inc: &mut bool, cand: chrono::NaiveDateTime, cand_inc: bool) {
+    match up {
+        None => {
+            *up = Some(cand);
+            *up_inc = cand_inc;
+        }
+        Some(current) => {
+            if cand < *current {
+                *up = Some(cand);
+                *up_inc = cand_inc;
+            } else if cand == *current {
+                *up_inc = *up_inc && cand_inc;
+            }
+        }
+    }
+}
+
+fn add_years(dt: chrono::NaiveDateTime, years: i32) -> Option<chrono::NaiveDateTime> {
+    let target_year = dt.year() + years;
+    if let Some(new_dt) = dt.with_year(target_year) {
+        Some(new_dt)
+    } else {
+        // If it failed (likely leap year Feb 29), set day to 28 first
+        dt.with_day(28)?.with_year(target_year)
+    }
+}
+
+fn build_delivery_window(nodes: &[FilterNode], tz: &Tz, timezone_str: &str) -> Result<Option<LocalHourWindow>> {
+    let mut lower: Option<chrono::NaiveDateTime> = None;
+    let mut lower_inc = false;
+    let mut upper: Option<chrono::NaiveDateTime> = None;
+    let mut upper_inc = false;
+    let mut saw_any = false;
+
+    for node in nodes {
+        if let FilterNode::Comparison(f) = node {
+            let is_delivery = f.field.eq_ignore_ascii_case("DeliveryStart") 
+                || f.field.eq_ignore_ascii_case("DeliveryEnd");
+            if !is_delivery {
+                continue;
+            }
+            saw_any = true;
+
+            let utc_dt = crate::domain::timeexpr::point_in_time::parse_point_in_time(&f.value.raw, timezone_str)?;
+            let local_dt = utc_dt.with_timezone(tz);
+            let mut local = local_dt.naive_local();
+
+            if f.field.eq_ignore_ascii_case("DeliveryEnd") {
+                local = local - chrono::Duration::hours(1);
+            }
+
+            match f.operator.as_str() {
+                "=" => {
+                    tighten_lower(&mut lower, &mut lower_inc, local, true);
+                    tighten_upper(&mut upper, &mut upper_inc, local, true);
+                }
+                ">=" => {
+                    tighten_lower(&mut lower, &mut lower_inc, local, true);
+                }
+                ">" => {
+                    tighten_lower(&mut lower, &mut lower_inc, local, false);
+                }
+                "<=" => {
+                    tighten_upper(&mut upper, &mut upper_inc, local, true);
+                }
+                "<" => {
+                    tighten_upper(&mut upper, &mut upper_inc, local, false);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if !saw_any {
+        return Ok(None);
+    }
+
+    if lower.is_none() && upper.is_some() {
+        let up_val = upper.unwrap();
+        let low_val = add_years(up_val, -DEFAULT_YEARS_ADJUSTMENT)
+            .ok_or_else(|| anyhow!("invalid date subtraction"))?;
+        lower = Some(low_val);
+        lower_inc = true;
+    } else if upper.is_none() && lower.is_some() {
+        let low_val = lower.unwrap();
+        let up_val = add_years(low_val, DEFAULT_YEARS_ADJUSTMENT)
+            .ok_or_else(|| anyhow!("invalid date addition"))?;
+        upper = Some(up_val);
+        upper_inc = true;
+    }
+
+    Ok(Some(LocalHourWindow {
+        lower,
+        lower_inclusive: lower_inc,
+        upper,
+        upper_inclusive: upper_inc,
+    }))
+}
+
+fn build_rdp_window(nodes: &[FilterNode], quote_index: i32) -> Result<Option<LocalHourWindow>> {
+    let mut rdp_nodes = Vec::new();
+    for node in nodes {
+        if let FilterNode::Comparison(f) = node {
+            if f.field.eq_ignore_ascii_case("RelativeDeliveryPeriod") {
+                rdp_nodes.push(f);
+            }
+        }
+    }
+
+    if rdp_nodes.is_empty() {
+        return Ok(None);
+    }
+
+    let qy = quote_index / 10000;
+    let qm = (quote_index / 100) % 100;
+    let qd = quote_index % 100;
+
+    let ref_local = chrono::NaiveDate::from_ymd_opt(qy, qm as u32, qd as u32)
+        .ok_or_else(|| anyhow!("invalid quote index date"))?
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| anyhow!("invalid midnight time"))?;
+
+    let mut lower = None;
+    let mut lower_inc = false;
+    let mut upper = None;
+    let mut upper_inc = false;
+
+    for f in rdp_nodes {
+        let hours = f.value.raw.parse::<i64>()
+            .map_err(|_| anyhow!("Invalid RelativeDeliveryPeriod value '{}'. Must be integer hours.", f.value.raw))?;
+        
+        let local = ref_local + chrono::Duration::hours(hours);
+
+        match f.operator.as_str() {
+            "=" => {
+                tighten_lower(&mut lower, &mut lower_inc, local, true);
+                tighten_upper(&mut upper, &mut upper_inc, local, true);
+            }
+            ">=" => {
+                tighten_lower(&mut lower, &mut lower_inc, local, true);
+            }
+            ">" => {
+                tighten_lower(&mut lower, &mut lower_inc, local, false);
+            }
+            "<=" => {
+                tighten_upper(&mut upper, &mut upper_inc, local, true);
+            }
+            "<" => {
+                tighten_upper(&mut upper, &mut upper_inc, local, false);
+            }
+            _ => {
+                return Err(anyhow!("Unsupported comparer '{}'. Use one of: =, <, <=, >, >=", f.operator));
+            }
+        }
+    }
+
+    Ok(Some(LocalHourWindow {
+        lower,
+        lower_inclusive: lower_inc,
+        upper,
+        upper_inclusive: upper_inc,
+    }))
+}
+
+fn intersect(a: LocalHourWindow, b: LocalHourWindow) -> Option<LocalHourWindow> {
+    let mut lower = None;
+    let mut lower_inc = false;
+    let mut upper = None;
+    let mut upper_inc = false;
+
+    if let Some(l) = a.lower {
+        tighten_lower(&mut lower, &mut lower_inc, l, a.lower_inclusive);
+    }
+    if let Some(l) = b.lower {
+        tighten_lower(&mut lower, &mut lower_inc, l, b.lower_inclusive);
+    }
+
+    if let Some(u) = a.upper {
+        tighten_upper(&mut upper, &mut upper_inc, u, a.upper_inclusive);
+    }
+    if let Some(u) = b.upper {
+        tighten_upper(&mut upper, &mut upper_inc, u, b.upper_inclusive);
+    }
+
+    let merged = LocalHourWindow {
+        lower,
+        lower_inclusive: lower_inc,
+        upper,
+        upper_inclusive: upper_inc,
+    };
+
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+

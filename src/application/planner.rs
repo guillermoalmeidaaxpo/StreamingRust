@@ -132,7 +132,10 @@ impl Planner for DefaultPlanner {
                 // 4. Generate Quote Indices
                 let limits = self.resolver.get_filter_limits(&[mapping.id], ctx.data_category).await?;
                 command.quote_indices = match source {
-                    SourceKind::Cassandra => QuoteIndexGenerator::generate_cassandra_indices(&command.filters, &limits, &command.filter_time_zone),
+                    SourceKind::Cassandra => {
+                        let tz = StrategySelector::get_cassandra_timezone(mapping.id);
+                        QuoteIndexGenerator::generate_cassandra_indices(&command.filters, &limits, &tz)
+                    }
                     _ => QuoteIndexGenerator::generate_cmdp_indices(&command.filters, &limits, &command.filter_time_zone),
                 };
 
