@@ -78,6 +78,7 @@ The migration has reached a production-ready state with the following components
 | `QuoteIndexGenerator.cs` | `quote_index.rs` | 100% (Midnight logic) |
 | `RankOverClauseBuilder.cs`| `mssql/query_builder.rs` | 100% (Validation & Execution) |
 | `FiltersExtensions.cs` | `cassandra/query_builder.rs` | 100% (Timezone & RDP Parity) |
+| `AggregationSqlBuilder.cs`| `mssql/query_builder.rs` | 100% (CMDP, Hyperscale & CSV Parity) |
 | `RedisCmdpGlobalConnectionGate` | `redis_gate.rs` | Implemented (Lua) |
 | `GasDayEuropeIntervalBuilder` | `timeexpr/interval.rs` | Implemented (06:00) |
 | `TransactionalDataRequestArrayValidator` | `validator.rs` | Implemented |
@@ -129,6 +130,11 @@ Request payloads from legacy clients often contain mixed casing (camelCase, Pasc
 - **Bound Operator Correctness**: Corrected the translation in [query_builder.rs](file:///C:/Projects/StreamingRust/src/infrastructure/mssql/query_builder.rs) to generate precise equality checks (`=`) for single bounds, greater-or-equal checks (`>=`) for bounds ending in `'last'`, and default to `rank = 1` when no bounds are specified.
 - **Filter Parser Bypass**: Updated `SqlBuilder::filter_predicates` to ignore `RankOver` filter nodes, preventing query generation errors.
 - **Strict Validation Rules**: Ported the validator rules from `RankFilterValidator.cs` to [planner.rs](file:///C:/Projects/StreamingRust/src/application/planner.rs#L104-L119), rejecting requests that use RankOver on `TimeSeries` data categories, Cassandra or Hyperscale mappings, or combined with aggregations.
+
+### 6.9 SQL Aggregations and Dynamic Row Mapping Parity
+- **Robust Expression Parsing**: Ported C# `AggregationSqlBuilder` query builders, supporting `Keys` and `Values` translation into SQL Server group key functions and aggregation fields. Supported timezone-aligned date bucketing to prevent cross-timezone daily/weekly/monthly bucket splits, ensuring Monday alignment for weekly intervals.
+- **Physical Key Columns Preservation**: Aligned `wrap_column_for_hyperscale` with C# behavior to keep key columns like `ReferenceTime`, `DeliveryStart`, and `DeliveryEnd` as physical columns (passing `None` for the json column) while correctly casting properties inside the JSON data block.
+- **Dynamic Tiberius Casing & Type Safety**: Updated `map_tiberius_row` to support correct Tiberius 0.12 `ColumnType` casing (e.g., `DatetimeOffsetn`, `Numericn`, `Decimaln`, `NVarchar`, `Datetime`) and implemented safe `try_get` fallback retrieval for variable-length integers/floats (`Intn`, `Floatn`). This allows dynamic generation of headers and values for CSV and JSON outputs.
 
 ---
 
