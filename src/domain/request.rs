@@ -182,7 +182,7 @@ impl Transformations {
             }).collect()
         }).unwrap_or_default();
 
-        let expressions = self.values.as_ref().map(|values| {
+        let expressions: Vec<AggregationColumn> = self.values.as_ref().map(|values| {
             values.iter().filter_map(|pair| {
                 if pair.len() == 2 {
                     Some(AggregationColumn {
