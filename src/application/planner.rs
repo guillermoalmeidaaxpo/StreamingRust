@@ -104,6 +104,19 @@ impl Planner for DefaultPlanner {
                     return Err(anyhow::anyhow!("The Shape filter cannot be used with this Identifier. Data is not hosted in CMDP"));
                 }
 
+                let has_rank_over = runtime_filters.nodes.iter().any(|n| matches!(n, crate::domain::filters::FilterNode::RankOver(_)));
+                if has_rank_over {
+                    if has_aggregations {
+                        return Err(anyhow::anyhow!("RankOver filters cannot be combined with aggregations"));
+                    }
+                    if mapping.data_category == DataCategory::TimeSeries {
+                        return Err(anyhow::anyhow!("RankOver filters are not supported for TimeSeries data category"));
+                    }
+                    if mapping.cassandra_id.is_some() || mapping.hyperscale_id.is_some() {
+                        return Err(anyhow::anyhow!("RankOver filters are not supported for this Identifier"));
+                    }
+                }
+
                 let source = StrategySelector::select_source(&mapping, has_aggregations, has_shape, ctx.is_mesap_endpoint);
                 let shape = request.filters.as_ref()
                     .and_then(|f| f.shape.as_ref())

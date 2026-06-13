@@ -151,11 +151,19 @@ impl CMDPQueryBuilder {
             let order_by = rank_filter.order_by.iter().map(|s| format!("{} {}", qualify(&s.field), s.direction)).collect::<Vec<_>>().join(", ");
             
             let mut rank_where = Vec::new();
-            for bound in &rank_filter.bounds {
-                if let (Some(start), None) = (&bound.start, &bound.end) {
-                    rank_where.push(format!("[d].[rank] >= {}", start));
-                } else if let (Some(start), Some(end)) = (&bound.start, &bound.end) {
-                    rank_where.push(format!("([d].[rank] >= {} AND [d].[rank] <= {})", start, end));
+            if rank_filter.bounds.is_empty() {
+                rank_where.push("[d].[rank] = 1".to_string());
+            } else {
+                for bound in &rank_filter.bounds {
+                    if let (Some(start), None) = (&bound.start, &bound.end) {
+                        rank_where.push(format!("[d].[rank] = {}", start));
+                    } else if let (Some(start), Some(end)) = (&bound.start, &bound.end) {
+                        if end.eq_ignore_ascii_case("last") {
+                            rank_where.push(format!("[d].[rank] >= {}", start));
+                        } else {
+                            rank_where.push(format!("([d].[rank] >= {} AND [d].[rank] <= {})", start, end));
+                        }
+                    }
                 }
             }
             let rank_where_clause = if rank_where.is_empty() { "1=1".to_string() } else { rank_where.join(" OR ") };
@@ -336,7 +344,7 @@ impl SqlBuilder {
                     }
                 }
                 FilterNode::RankOver(_) => {
-                    return Err(anyhow!("rankover filters are not supported by the CMDP SQL builder yet"));
+                    // Handled at the statement building level
                 }
             }
         }
