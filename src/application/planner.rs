@@ -97,7 +97,8 @@ impl Planner for DefaultPlanner {
             let runtime_filters = self.filter_provider.get_runtime_filters(raw_filters, &mappings, self.resolver.as_ref()).await?;
 
             for mapping in mappings {
-                let has_aggregations = request.transformations.as_ref().map(|t| t.keys.is_some()).unwrap_or(false);
+                let aggregations = request.transformations.as_ref().and_then(|t| t.create_aggregations());
+                let has_aggregations = aggregations.is_some();
                 let has_shape = request.filters.as_ref().map(|f| f.shape.is_some()).unwrap_or(false);
 
                 if has_shape && mapping.hyperscale_id.is_some() {
@@ -133,6 +134,7 @@ impl Planner for DefaultPlanner {
                     filter_time_zone: request.filters.as_ref().and_then(|f| f.filter_time_zone.clone()).unwrap_or_default(),
                     target_time_zone: request.transformations.as_ref().and_then(|t| t.target_time_zone.clone()).unwrap_or_default(),
                     has_aggregations,
+                    aggregations,
                     has_shape,
                     shape,
                     filters: runtime_filters.clone(),

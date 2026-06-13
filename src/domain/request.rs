@@ -126,6 +126,86 @@ pub struct Transformations {
     pub values: Option<Vec<Vec<String>>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Aggregations {
+    pub group_by: Vec<AggregationColumn>,
+    pub expressions: Vec<AggregationColumn>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AggregationColumn {
+    pub expression: String,
+    pub alias: String,
+}
+
+fn normalize_aggregation_expression(expression: &str) -> String {
+    let mut result = String::new();
+    let lower = expression.to_lowercase();
+    let mut last_idx = 0;
+    
+    while let Some(idx) = lower[last_idx..].find("delivery") {
+        let abs_idx = last_idx + idx;
+        result.push_str(&expression[last_idx..abs_idx]);
+        
+        let after_delivery = &lower[abs_idx + 8..];
+        if after_delivery.starts_with("start") {
+            result.push_str(&expression[abs_idx..abs_idx + 13]);
+            last_idx = abs_idx + 13;
+        } else {
+            result.push_str("DeliveryStart");
+            last_idx = abs_idx + 8;
+        }
+    }
+    result.push_str(&expression[last_idx..]);
+    result
+}
+
+impl Transformations {
+    pub fn create_aggregations(&self) -> Option<Aggregations> {
+        if self.keys.is_none() && self.values.is_none() {
+            return None;
+        }
+
+        let group_by = self.keys.as_ref().map(|keys| {
+            keys.iter().map(|key| {
+                let parts: Vec<&str> = key.splitn(2, '=').collect();
+                let expr = normalize_aggregation_expression(parts[0].trim());
+                let alias = if parts.len() == 2 {
+                    parts[1].trim().to_string()
+                } else {
+                    expr.clone()
+                };
+                AggregationColumn {
+                    expression: expr,
+                    alias,
+                }
+            }).collect()
+        }).unwrap_or_default();
+
+        let expressions = self.values.as_ref().map(|values| {
+            values.iter().filter_map(|pair| {
+                if pair.len() == 2 {
+                    Some(AggregationColumn {
+                        expression: pair[0].trim().to_string(),
+                        alias: pair[1].trim().to_string(),
+                    })
+                } else {
+                    None
+                }
+            }).collect()
+        }).unwrap_or_default();
+
+        if group_by.is_empty() && expressions.is_empty() {
+            return None;
+        }
+
+        Some(Aggregations {
+            group_by,
+            expressions,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct Shape {

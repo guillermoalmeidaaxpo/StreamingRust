@@ -143,10 +143,44 @@ impl CMDPQueryBuilder {
             }
         }
 
-        let selected = select_columns(&mapping.columns, &command.columns);
-        
-        let statement = if let Some(rank_filter) = rank_over_filter {
-            // Subquery for RankOver
+        let statement = if let Some(aggregations) = &command.aggregations {
+            let select_cols = build_select_columns(
+                aggregations,
+                &command.columns,
+                false, // is_hyperscale
+                None,
+                Some(mapping.id),
+                mapping,
+                Some(&command.target_time_zone),
+            )?;
+            let group_by = build_group_by_clause(
+                aggregations,
+                false, // is_hyperscale
+                None,
+                mapping,
+                Some(&command.target_time_zone),
+            )?;
+            let order_by = build_order_by_clause(
+                aggregations,
+                mapping,
+            )?;
+            
+            let mut sql = format!(
+                "SELECT {} FROM {} AS [d] WHERE {}",
+                select_cols.join(", "),
+                quote_table(&mapping.view_name),
+                where_clauses.join(" AND ")
+            );
+            if !group_by.is_empty() {
+                sql.push_str(" GROUP BY ");
+                sql.push_str(&group_by);
+            }
+            if !order_by.is_empty() {
+                sql.push_str(" ORDER BY ");
+                sql.push_str(&order_by);
+            }
+            sql
+        } else if let Some(rank_filter) = rank_over_filter {
             let partition_by = rank_filter.partition_by.iter().map(|c| qualify(c)).collect::<Vec<_>>().join(", ");
             let order_by = rank_filter.order_by.iter().map(|s| format!("{} {}", qualify(&s.field), s.direction)).collect::<Vec<_>>().join(", ");
             
@@ -169,6 +203,7 @@ impl CMDPQueryBuilder {
             let rank_where_clause = if rank_where.is_empty() { "1=1".to_string() } else { rank_where.join(" OR ") };
 
             let subquery_selected: Vec<String> = mapping.columns.iter().filter(|c| c.source_name != "RelativeDeliveryPeriod").map(|c| qualify(&c.source_name)).collect();
+            let selected = select_columns(&mapping.columns, &command.columns);
             let query_selected = selected.clone(); // In real implementation, handle RelativeDeliveryPeriod exclusion
 
             format!(
@@ -182,6 +217,7 @@ impl CMDPQueryBuilder {
                 rank_where_clause
             )
         } else {
+            let selected = select_columns(&mapping.columns, &command.columns);
             format!(
                 "SELECT {} FROM {} AS [d] WHERE {}",
                 selected.join(", "),
@@ -191,10 +227,12 @@ impl CMDPQueryBuilder {
         };
 
         let mut final_statement = statement;
-        let order = order_columns(&mapping.columns);
-        if !order.is_empty() {
-            final_statement.push_str(" ORDER BY ");
-            final_statement.push_str(&order.join(", "));
+        if command.aggregations.is_none() {
+            let order = order_columns(&mapping.columns);
+            if !order.is_empty() {
+                final_statement.push_str(" ORDER BY ");
+                final_statement.push_str(&order.join(", "));
+            }
         }
 
         Ok((final_statement, builder.parameters))
@@ -222,11 +260,7 @@ impl HyperscaleQueryBuilder {
 
             let (statement, parameters) = self.build_hyperscale_statement(
                 mapping,
-                &command.filters,
-                &command.columns,
-                command.version_as_of.as_ref(),
-                command.include_deleted,
-                command.include_identifier,
+                command,
             )?;
             
             queries.push(ExecutableQuery {
@@ -247,12 +281,14 @@ impl HyperscaleQueryBuilder {
     fn build_hyperscale_statement(
         &self,
         mapping: &Mapping,
-        filters: &FilterSet,
-        requested_columns: &[String],
-        version_as_of: Option<&chrono::DateTime<chrono::Utc>>,
-        include_deleted: bool,
-        include_identifier: bool,
+        command: &Command,
     ) -> Result<(String, HashMap<String, serde_json::Value>)> {
+        let filters = &command.filters;
+        let requested_columns = &command.columns;
+        let version_as_of = command.version_as_of.as_ref();
+        let include_deleted = command.include_deleted;
+        let include_identifier = command.include_identifier;
+
         let view_name = hyperscale_view_name(mapping, filters, requested_columns, version_as_of)?;
         let value_column = hyperscale_value_column(mapping.data_category)?;
 
@@ -277,24 +313,64 @@ impl HyperscaleQueryBuilder {
         let filter_predicates = builder.filter_predicates(&filters.nodes)?;
         where_clauses.extend(filter_predicates);
 
-        let selected = hyperscale_select_columns(&mapping.columns, requested_columns, &value_column, include_identifier);
-        
-        let mut statement = format!(
-            "SELECT {} FROM {} AS [d]",
-            selected.join(", "),
-            from
-        );
-
-        if !where_clauses.is_empty() {
-            statement.push_str(" WHERE ");
-            statement.push_str(&where_clauses.join(" AND "));
-        }
-
-        let order = hyperscale_order_columns(&mapping.columns, &value_column, include_identifier);
-        if !order.is_empty() {
-            statement.push_str(" ORDER BY ");
-            statement.push_str(&order.join(", "));
-        }
+        let statement = if let Some(aggregations) = &command.aggregations {
+            let select_cols = build_select_columns(
+                aggregations,
+                requested_columns,
+                true, // is_hyperscale
+                Some(&value_column),
+                Some(mapping.id),
+                mapping,
+                Some(&command.target_time_zone),
+            )?;
+            let group_by = build_group_by_clause(
+                aggregations,
+                true, // is_hyperscale
+                Some(&value_column),
+                mapping,
+                Some(&command.target_time_zone),
+            )?;
+            let order_by = build_order_by_clause(
+                aggregations,
+                mapping,
+            )?;
+            
+            let mut sql = format!(
+                "SELECT {} FROM {} AS [d]",
+                select_cols.join(", "),
+                from
+            );
+            if !where_clauses.is_empty() {
+                sql.push_str(" WHERE ");
+                sql.push_str(&where_clauses.join(" AND "));
+            }
+            if !group_by.is_empty() {
+                sql.push_str(" GROUP BY ");
+                sql.push_str(&group_by);
+            }
+            if !order_by.is_empty() {
+                sql.push_str(" ORDER BY ");
+                sql.push_str(&order_by);
+            }
+            sql
+        } else {
+            let selected = hyperscale_select_columns(&mapping.columns, requested_columns, &value_column, include_identifier);
+            let mut sql = format!(
+                "SELECT {} FROM {} AS [d]",
+                selected.join(", "),
+                from
+            );
+            if !where_clauses.is_empty() {
+                sql.push_str(" WHERE ");
+                sql.push_str(&where_clauses.join(" AND "));
+            }
+            let order = hyperscale_order_columns(&mapping.columns, &value_column, include_identifier);
+            if !order.is_empty() {
+                sql.push_str(" ORDER BY ");
+                sql.push_str(&order.join(", "));
+            }
+            sql
+        };
 
         Ok((statement, builder.parameters))
     }
@@ -621,4 +697,314 @@ fn format_duration_as_time(d: chrono::Duration) -> String {
     let mins = (secs % 3600) / 60;
     let secs = secs % 60;
     format!("{:02}:{:02}:{:02}", hours, mins, secs)
+}
+
+fn is_utc_equivalent(tz: &str) -> bool {
+    matches!(tz.trim().to_uppercase().as_str(), "" | "UTC" | "GMT")
+}
+
+fn find_mapping<'a>(mapping: &'a Mapping, column_name: &str) -> Option<&'a ColumnMapping> {
+    mapping.columns.iter().find(|m| m.mds_name.eq_ignore_ascii_case(column_name))
+}
+
+fn wrap_column_for_hyperscale(
+    column_name: &str,
+    is_hyperscale: bool,
+    hyperscale_data_column: Option<&str>,
+    mapping: &Mapping,
+) -> String {
+    if !is_hyperscale || hyperscale_data_column.is_none() || hyperscale_data_column.unwrap().is_empty() {
+        let physical = find_mapping(mapping, column_name)
+            .map(|m| m.source_name.as_str())
+            .unwrap_or(column_name);
+        format!("[{}]", physical)
+    } else {
+        let data_col = hyperscale_data_column.unwrap();
+        let item = find_mapping(mapping, column_name);
+        let dt = item.map(|m| m.data_type.as_str());
+        let col_name = item.map(|m| m.source_name.as_str()).unwrap_or(column_name);
+        wrap_json_value_with_cast(data_col, col_name, dt, None)
+    }
+}
+
+fn wrap_aggregation_expression(
+    expression: &str,
+    is_hyperscale: bool,
+    hyperscale_data_column: Option<&str>,
+    mapping: &Mapping,
+) -> String {
+    let re = regex::Regex::new(r"(?i)\b([A-Z]+)\(([^)]+)\)").unwrap();
+    re.replace_all(expression, |caps: &regex::Captures| {
+        let func = &caps[1];
+        let inner_expr = caps[2].trim();
+        if inner_expr == "*" {
+            return caps[0].to_string();
+        }
+        
+        if !is_hyperscale || hyperscale_data_column.is_none() {
+            let physical = find_mapping(mapping, inner_expr)
+                .map(|m| m.source_name.as_str())
+                .unwrap_or(inner_expr);
+            format!("{}([{}])", func, physical)
+        } else {
+            let data_col = hyperscale_data_column.unwrap();
+            if inner_expr.contains('*') {
+                let parts: Vec<&str> = inner_expr.split('*').map(|p| p.trim()).collect();
+                let wrapped_parts: Vec<String> = parts.iter().map(|&p| {
+                    let item = find_mapping(mapping, p);
+                    let dt = item.map(|m| m.data_type.as_str());
+                    let col_name = item.map(|m| m.source_name.as_str()).unwrap_or(p);
+                    wrap_json_value_with_cast(data_col, col_name, dt, None)
+                }).collect();
+                format!("{}({})", func, wrapped_parts.join(" * "))
+            } else {
+                let item = find_mapping(mapping, inner_expr);
+                let dt = item.map(|m| m.data_type.as_str());
+                let col_name = item.map(|m| m.source_name.as_str()).unwrap_or(inner_expr);
+                let wrapped_val = wrap_json_value_with_cast(data_col, col_name, dt, None);
+                format!("{}({})", func, wrapped_val)
+            }
+        }
+    }).into_owned()
+}
+
+fn extract_aggregate_source_column(expression: &str) -> Option<String> {
+    let re = regex::Regex::new(r"(?i)Aggregate\((?P<column>\w+),\s*(?P<interval>[^)]+)\)").unwrap();
+    re.captures(expression).map(|caps| caps["column"].to_string())
+}
+
+fn parse_aggregate_expression(
+    aggregate_expression: &str,
+    is_hyperscale: bool,
+    _hyperscale_data_column: Option<&str>,
+    mapping: &Mapping,
+    target_timezone: Option<&str>,
+) -> Result<String> {
+    let re = regex::Regex::new(r"(?i)Aggregate\((?P<column>\w+),\s*(?P<interval>[^)]+)\)").unwrap();
+    let caps = re.captures(aggregate_expression)
+        .ok_or_else(|| anyhow!("Invalid aggregate expression: {}. Expected format: Aggregate(columnName, interval)", aggregate_expression))?;
+    
+    let column = &caps["column"];
+    let interval = &caps["interval"];
+    
+    let (datepart, increment) = parse_iso8601_duration(interval)?;
+    let column_ref = wrap_column_for_hyperscale(column, is_hyperscale, None, mapping);
+    
+    let is_utc = target_timezone.map(|tz| is_utc_equivalent(tz)).unwrap_or(true);
+    let sql_tz_name = if is_utc {
+        None
+    } else {
+        target_timezone.map(|tz| to_sql_server_timezone_name(tz))
+    };
+    
+    let is_week = datepart.eq_ignore_ascii_case("WEEK");
+    let effective_datepart = if is_week { "DAY" } else { &datepart };
+    let effective_increment = if is_week { 7 * increment } else { increment };
+    let anchor = if is_week { "'20000103'" } else { "'20000101'" };
+    
+    let inner_column_expr = if let Some(tz) = &sql_tz_name {
+        format!("CAST({} AT TIME ZONE '{}' AS datetime2)", column_ref, tz)
+    } else {
+        column_ref
+    };
+    
+    let cast_suffix = if let Some(tz) = &sql_tz_name {
+        format!("AS datetime2) AT TIME ZONE '{}'", tz)
+    } else {
+        "AS datetimeoffset)".to_string()
+    };
+    
+    Ok(format!(
+        "CAST(DATEADD({}, (DATEDIFF({}, {}, {}) / {}) * {}, {}) {}",
+        effective_datepart,
+        effective_datepart,
+        anchor,
+        inner_column_expr,
+        effective_increment,
+        effective_increment,
+        anchor,
+        cast_suffix
+    ))
+}
+
+fn parse_iso8601_duration(duration: &str) -> Result<(String, i32)> {
+    let mut d = duration.trim_start_matches(|c| c == 'P' || c == 'p');
+    if d.starts_with(|c| c == 'T' || c == 't') {
+        d = &d[1..];
+        if d.ends_with(|c| c == 'H' || c == 'h') {
+            let num = d[..d.len()-1].parse::<i32>()?;
+            if num <= 0 {
+                return Err(anyhow!("Expected a positive integer duration increment"));
+            }
+            return Ok(("HOUR".to_string(), num));
+        }
+        if d.ends_with(|c| c == 'M' || c == 'm') {
+            let num = d[..d.len()-1].parse::<i32>()?;
+            if num <= 0 {
+                return Err(anyhow!("Expected a positive integer duration increment"));
+            }
+            return Ok(("MINUTE".to_string(), num));
+        }
+        if d.ends_with(|c| c == 'S' || c == 's') {
+            let num = d[..d.len()-1].parse::<i32>()?;
+            if num <= 0 {
+                return Err(anyhow!("Expected a positive integer duration increment"));
+            }
+            return Ok(("SECOND".to_string(), num));
+        }
+    }
+
+    if d.ends_with(|c| c == 'Y' || c == 'y') {
+        let num = d[..d.len()-1].parse::<i32>()?;
+        if num <= 0 {
+            return Err(anyhow!("Expected a positive integer duration increment"));
+        }
+        return Ok(("YEAR".to_string(), num));
+    }
+    if d.ends_with(|c| c == 'M' || c == 'm') {
+        let num = d[..d.len()-1].parse::<i32>()?;
+        if num <= 0 {
+            return Err(anyhow!("Expected a positive integer duration increment"));
+        }
+        return Ok(("MONTH".to_string(), num));
+    }
+    if d.ends_with(|c| c == 'W' || c == 'w') {
+        let num = d[..d.len()-1].parse::<i32>()?;
+        if num <= 0 {
+            return Err(anyhow!("Expected a positive integer duration increment"));
+        }
+        return Ok(("WEEK".to_string(), num));
+    }
+    if d.ends_with(|c| c == 'D' || c == 'd') {
+        let num = d[..d.len()-1].parse::<i32>()?;
+        if num <= 0 {
+            return Err(anyhow!("Expected a positive integer duration increment"));
+        }
+        return Ok(("DAY".to_string(), num));
+    }
+
+    Err(anyhow!("Unsupported duration format: P{}", duration))
+}
+
+fn build_select_columns(
+    aggregations: &crate::domain::request::Aggregations,
+    projection_columns: &[String],
+    is_hyperscale: bool,
+    hyperscale_data_column: Option<&str>,
+    mdo_id: Option<crate::domain::Identifier>,
+    mapping: &Mapping,
+    target_timezone: Option<&str>,
+) -> Result<Vec<String>> {
+    let mut select_parts = Vec::new();
+    
+    let mut aggregate_key_columns = HashMap::new();
+    for g in &aggregations.group_by {
+        if let Some(source_col) = extract_aggregate_source_column(&g.expression) {
+            aggregate_key_columns.insert(source_col.to_lowercase(), g);
+        }
+    }
+
+    if let Some(id) = mdo_id {
+        select_parts.push(format!("{} AS [{}]", id, "Identifier"));
+    }
+
+    if let Some(rt_group_by) = aggregate_key_columns.get(&"referencetime".to_string()) {
+        let bucket_expr = parse_aggregate_expression(&rt_group_by.expression, is_hyperscale, hyperscale_data_column, mapping, target_timezone)?;
+        select_parts.push(format!("{} AS [{}]", bucket_expr, "ReferenceTime"));
+    } else {
+        let rt_col = wrap_column_for_hyperscale("ReferenceTime", is_hyperscale, None, mapping);
+        select_parts.push(format!("MIN({}) AS [{}]", rt_col, "ReferenceTime"));
+    }
+
+    let ds_col = wrap_column_for_hyperscale("DeliveryStart", is_hyperscale, None, mapping);
+    select_parts.push(format!("MIN({}) AS [{}]", ds_col, "DeliveryStart"));
+
+    let de_col = wrap_column_for_hyperscale("DeliveryEnd", is_hyperscale, None, mapping);
+    select_parts.push(format!("MAX({}) AS [{}]", de_col, "DeliveryEnd"));
+
+    select_parts.push(format!("NULL AS [{}]", "RelativeDeliveryPeriod"));
+
+    if !is_hyperscale {
+        select_parts.push("NULL AS [LegacyDeliveryBucketNumber]".to_string());
+    }
+
+    let has_projection = !projection_columns.is_empty();
+
+    for g in &aggregations.group_by {
+        if !g.expression.to_lowercase().starts_with("aggregate(") {
+            if has_projection && !projection_columns.iter().any(|c| c.eq_ignore_ascii_case(&g.alias)) {
+                continue;
+            }
+            let sql_expr = wrap_column_for_hyperscale(&g.expression, is_hyperscale, hyperscale_data_column, mapping);
+            select_parts.push(format!("{} AS [{}]", sql_expr, g.alias));
+        }
+    }
+
+    for expr in &aggregations.expressions {
+        if has_projection && !projection_columns.iter().any(|c| c.eq_ignore_ascii_case(&expr.alias)) {
+            continue;
+        }
+        let wrapped_expr = wrap_aggregation_expression(&expr.expression, is_hyperscale, hyperscale_data_column, mapping);
+        select_parts.push(format!("{} AS [{}]", wrapped_expr, expr.alias));
+    }
+
+    Ok(select_parts)
+}
+
+fn build_group_by_clause(
+    aggregations: &crate::domain::request::Aggregations,
+    is_hyperscale: bool,
+    hyperscale_data_column: Option<&str>,
+    mapping: &Mapping,
+    target_timezone: Option<&str>,
+) -> Result<String> {
+    if aggregations.group_by.is_empty() {
+        return Ok(String::new());
+    }
+
+    let mut group_by_parts = Vec::new();
+
+    let ref_time_col = find_mapping(mapping, "ReferenceTime").map(|m| m.source_name.as_str());
+
+    if let Some(col) = ref_time_col {
+        group_by_parts.push(format!("[{}]", col));
+    }
+
+    for g in &aggregations.group_by {
+        if g.expression.to_lowercase().starts_with("aggregate(") {
+            let expr = parse_aggregate_expression(&g.expression, is_hyperscale, hyperscale_data_column, mapping, target_timezone)?;
+            group_by_parts.push(expr);
+        } else {
+            let col = wrap_column_for_hyperscale(&g.expression, is_hyperscale, hyperscale_data_column, mapping);
+            group_by_parts.push(col);
+        }
+    }
+
+    Ok(group_by_parts.join(", "))
+}
+
+fn build_order_by_clause(
+    aggregations: &crate::domain::request::Aggregations,
+    mapping: &Mapping,
+) -> Result<String> {
+    if aggregations.group_by.is_empty() {
+        return Ok(String::new());
+    }
+
+    let mut order_by_parts = Vec::new();
+
+    let ref_time_col = find_mapping(mapping, "ReferenceTime").map(|m| m.source_name.as_str());
+    if let Some(col) = ref_time_col {
+        order_by_parts.push(format!("[{}]", col));
+    }
+
+    for g in &aggregations.group_by {
+        if let Some(source_col) = extract_aggregate_source_column(&g.expression) {
+            order_by_parts.push(format!("[{}]", source_col));
+        } else {
+            order_by_parts.push(format!("[{}]", g.alias));
+        }
+    }
+
+    Ok(order_by_parts.join(", "))
 }

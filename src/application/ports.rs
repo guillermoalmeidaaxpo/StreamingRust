@@ -64,6 +64,7 @@ pub struct Command {
     pub filter_time_zone: String,
     pub target_time_zone: String,
     pub has_aggregations: bool,
+    pub aggregations: Option<crate::domain::request::Aggregations>,
     pub has_shape: bool,
     pub shape: Option<NormalizedShape>,
     pub filters: FilterSet,

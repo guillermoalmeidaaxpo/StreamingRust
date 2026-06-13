@@ -68,10 +68,11 @@ impl Repository for MssqlRepository {
         let mut stream = tib_query.query(&mut conn).await?;
         let mut items = Vec::new();
         while let Some(row_res) = stream.next().await {
-            let _row = row_res?;
+            let row = row_res?;
+            let fields = map_tiberius_row(&row);
             items.push(DataItem {
                 id: query.id,
-                fields: HashMap::new(),
+                fields,
             });
         }
 
@@ -120,10 +121,11 @@ impl Repository for MssqlRepository {
             let mut stream = tib_query.query(&mut conn).await?;
 
             while let Some(item) = stream.next().await {
-                let _row = item?;
+                let row = item?;
+                let fields = map_tiberius_row(&row);
                 yield DataItem {
                     id,
-                    fields: HashMap::new(),
+                    fields,
                 };
             }
 
@@ -159,5 +161,98 @@ fn prepare_query(statement: &str, params: &HashMap<String, serde_json::Value>) -
     new_statement.push_str(&statement[last_idx..]);
 
     (new_statement, args)
+}
+
+fn map_tiberius_row(row: &tiberius::Row) -> HashMap<String, serde_json::Value> {
+    let mut fields = HashMap::new();
+    for (i, col) in row.columns().iter().enumerate() {
+        let name = col.name().to_string();
+        let val = match col.column_type() {
+            tiberius::ColumnType::Bit => {
+                row.try_get::<bool, _>(i).ok().flatten().map(serde_json::Value::Bool).unwrap_or(serde_json::Value::Null)
+            }
+            tiberius::ColumnType::Int1 => {
+                row.try_get::<u8, _>(i).ok().flatten().map(|n| serde_json::Value::Number(n.into())).unwrap_or(serde_json::Value::Null)
+            }
+            tiberius::ColumnType::Int2 => {
+                row.try_get::<i16, _>(i).ok().flatten().map(|n| serde_json::Value::Number(n.into())).unwrap_or(serde_json::Value::Null)
+            }
+            tiberius::ColumnType::Int4 => {
+                row.try_get::<i32, _>(i).ok().flatten().map(|n| serde_json::Value::Number(n.into())).unwrap_or(serde_json::Value::Null)
+            }
+            tiberius::ColumnType::Int8 => {
+                row.try_get::<i64, _>(i).ok().flatten().map(|n| serde_json::Value::Number(n.into())).unwrap_or(serde_json::Value::Null)
+            }
+            tiberius::ColumnType::Intn => {
+                if let Ok(Some(n)) = row.try_get::<i64, _>(i) {
+                    serde_json::Value::Number(n.into())
+                } else if let Ok(Some(n)) = row.try_get::<i32, _>(i) {
+                    serde_json::Value::Number(n.into())
+                } else if let Ok(Some(n)) = row.try_get::<i16, _>(i) {
+                    serde_json::Value::Number(n.into())
+                } else if let Ok(Some(n)) = row.try_get::<u8, _>(i) {
+                    serde_json::Value::Number(n.into())
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            tiberius::ColumnType::Float4 => {
+                row.try_get::<f32, _>(i).ok().flatten().and_then(|f| serde_json::Number::from_f64(f as f64)).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+            }
+            tiberius::ColumnType::Float8 => {
+                row.try_get::<f64, _>(i).ok().flatten().and_then(|f| serde_json::Number::from_f64(f)).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+            }
+            tiberius::ColumnType::Floatn => {
+                if let Ok(Some(f)) = row.try_get::<f64, _>(i) {
+                    serde_json::Number::from_f64(f).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                } else if let Ok(Some(f)) = row.try_get::<f32, _>(i) {
+                    serde_json::Number::from_f64(f as f64).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            tiberius::ColumnType::Numericn | tiberius::ColumnType::Decimaln => {
+                if let Some(num) = row.try_get::<tiberius::numeric::Numeric, _>(i).ok().flatten() {
+                    let val = num.value() as f64 / 10.0f64.powi(num.scale() as i32);
+                    serde_json::Number::from_f64(val).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            tiberius::ColumnType::BigVarChar | tiberius::ColumnType::NVarchar | tiberius::ColumnType::BigChar | tiberius::ColumnType::NChar | tiberius::ColumnType::Text | tiberius::ColumnType::NText => {
+                row.try_get::<&str, _>(i).ok().flatten().map(|s| serde_json::Value::String(s.to_string())).unwrap_or(serde_json::Value::Null)
+            }
+            tiberius::ColumnType::Datetime | tiberius::ColumnType::Datetime2 | tiberius::ColumnType::Datetime4 | tiberius::ColumnType::Datetimen => {
+                if let Some(dt) = row.try_get::<chrono::NaiveDateTime, _>(i).ok().flatten() {
+                    serde_json::Value::String(dt.format("%Y-%m-%dT%H:%M:%S.000").to_string())
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            tiberius::ColumnType::DatetimeOffsetn => {
+                if let Some(dt) = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>(i).ok().flatten() {
+                    serde_json::Value::String(dt.to_rfc3339())
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            tiberius::ColumnType::Guid => {
+                row.try_get::<uuid::Uuid, _>(i).ok().flatten().map(|uid| serde_json::Value::String(uid.to_string())).unwrap_or(serde_json::Value::Null)
+            }
+            _ => {
+                if let Some(s) = row.try_get::<&str, _>(i).ok().flatten() {
+                    serde_json::Value::String(s.to_string())
+                } else if let Some(f) = row.try_get::<f64, _>(i).ok().flatten() {
+                    serde_json::Number::from_f64(f).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                } else if let Some(n) = row.try_get::<i64, _>(i).ok().flatten() {
+                    serde_json::Value::Number(n.into())
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+        };
+        fields.insert(name, val);
+    }
+    fields
 }
 
