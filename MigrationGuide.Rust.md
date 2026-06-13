@@ -76,7 +76,8 @@ The migration has reached a production-ready state with the following components
 | `ILicenseValidatorApiClient.cs`| `HttpLicenseValidator.rs` | 100% (2-step check) |
 | `MdoMappingRepository.cs` | `MssqlMappingResolver.rs` | 100% (Dual Pools) |
 | `QuoteIndexGenerator.cs` | `quote_index.rs` | 100% (Midnight logic) |
-| `RankOverClauseBuilder.cs`| `mssql/query_builder.rs` | Implemented |
+| `RankOverClauseBuilder.cs`| `mssql/query_builder.rs` | 100% (Validation & Execution) |
+| `FiltersExtensions.cs` | `cassandra/query_builder.rs` | 100% (Timezone & RDP Parity) |
 | `RedisCmdpGlobalConnectionGate` | `redis_gate.rs` | Implemented (Lua) |
 | `GasDayEuropeIntervalBuilder` | `timeexpr/interval.rs` | Implemented (06:00) |
 | `TransactionalDataRequestArrayValidator` | `validator.rs` | Implemented |
@@ -118,6 +119,16 @@ Request payloads from legacy clients often contain mixed casing (camelCase, Pasc
 - **MssqlStatisticsService**: Implemented a database-backed `MssqlStatisticsService` in [statistics.rs](file:///C:/Projects/StreamingRust/src/infrastructure/mssql/statistics.rs) to replace the `MockStatsService` placeholder. It queries the `TimeseriesStatistics`, `CurvesStatistics`, and `SurfacesStatistics` tables in the MDS database to retrieve historical data bounds.
 - **DatapointsCalculator**: Ported the C# data points estimation engine to Rust to calculate the total estimated row count for a request. This parses temporal intervals and filters (e.g. `ReferenceTime`, `DeliveryStart`, `DeliveryEnd`, and `RelativeDeliveryPeriod`), adjusting endpoints by resolution and checking constraints.
 - **Quota Validation Enforcement**: Re-enabled and configured `DataRowsNumberValidator` in [validator.rs](file:///C:/Projects/StreamingRust/src/application/validator.rs) to enforce size limits (throwing an error matching the legacy contract if the requested row count exceeds the quota), protecting the service against out-of-memory or database timeouts.
+
+### 6.7 Cassandra Timezone, Delivery, and RDP Filters Alignment
+- **Dynamic Timezone Resolution**: Refactored [planner.rs](file:///C:/Projects/StreamingRust/src/application/planner.rs#L135) and [query_builder.rs](file:///C:/Projects/StreamingRust/src/infrastructure/cassandra/query_builder.rs#L107) to resolve timezones dynamically using `StrategySelector::get_cassandra_timezone(mapping.id)` rather than using the request's filter timezone or hardcoded `"Europe/Zurich"`.
+- **RDP & Delivery Window Intersection**: Rewrote Cassandra query filter generation to mirror `FiltersExtensions.cs` logic. It builds dynamic timezone-aware bounds for `DeliveryStart` and `DeliveryEnd`, adjusts `DeliveryEnd` by subtracting 1 hour, and integrates `RelativeDeliveryPeriod` offsets from the quote index's local midnight.
+- **Leap-Year Adjustments & Inclusivity Logic**: Included default 20-year window adjustments when a bound is omitted, logical `AND` for inclusive bounds intersection, and safe leap-year conversions (Feb 29 fallback to Feb 28).
+
+### 6.8 Rank-Over Filter Query Execution & Validation Parity
+- **Bound Operator Correctness**: Corrected the translation in [query_builder.rs](file:///C:/Projects/StreamingRust/src/infrastructure/mssql/query_builder.rs) to generate precise equality checks (`=`) for single bounds, greater-or-equal checks (`>=`) for bounds ending in `'last'`, and default to `rank = 1` when no bounds are specified.
+- **Filter Parser Bypass**: Updated `SqlBuilder::filter_predicates` to ignore `RankOver` filter nodes, preventing query generation errors.
+- **Strict Validation Rules**: Ported the validator rules from `RankFilterValidator.cs` to [planner.rs](file:///C:/Projects/StreamingRust/src/application/planner.rs#L104-L119), rejecting requests that use RankOver on `TimeSeries` data categories, Cassandra or Hyperscale mappings, or combined with aggregations.
 
 ---
 
