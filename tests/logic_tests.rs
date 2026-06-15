@@ -237,3 +237,125 @@ async fn test_antlr_filter_parsing() {
     }
 }
 
+struct MockMappingResolver {
+    watermark: chrono::DateTime<chrono::Utc>,
+    mapping: streaming_rust::domain::Mapping,
+}
+
+#[async_trait::async_trait]
+impl streaming_rust::application::ports::MappingResolver for MockMappingResolver {
+    async fn resolve_mappings(&self, _ids: &[streaming_rust::domain::Identifier], _category: streaming_rust::domain::DataCategory, _stage: &str) -> anyhow::Result<Vec<streaming_rust::domain::Mapping>> {
+        Ok(vec![self.mapping.clone()])
+    }
+    async fn get_watermark(&self, _mappings: &[streaming_rust::domain::Mapping]) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
+        Ok(self.watermark)
+    }
+    async fn get_filter_limits(&self, _ids: &[streaming_rust::domain::Identifier], _category: streaming_rust::domain::DataCategory) -> anyhow::Result<streaming_rust::application::quote_index::FilterLimits> {
+        Ok(streaming_rust::application::quote_index::FilterLimits::default())
+    }
+    async fn get_max_reference_time_before(&self, _id: streaming_rust::domain::Identifier, _reference_time: chrono::DateTime<chrono::Utc>, _comparison_operator: &str, _category: streaming_rust::domain::DataCategory) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
+        Ok(chrono::Utc::now())
+    }
+}
+
+struct MockRepository;
+
+#[async_trait::async_trait]
+impl streaming_rust::application::ports::Repository for MockRepository {
+    async fn execute(&self, _query: streaming_rust::domain::ExecutableQuery) -> anyhow::Result<Vec<streaming_rust::domain::DataItem>> {
+        Ok(vec![])
+    }
+    async fn stream(&self, _query: streaming_rust::domain::ExecutableQuery) -> anyhow::Result<std::pin::Pin<Box<dyn futures::Stream<Item = anyhow::Result<streaming_rust::domain::DataItem>> + Send>>> {
+        Err(anyhow::anyhow!("Not implemented"))
+    }
+}
+
+#[tokio::test]
+async fn test_planner_hybrid_routing() {
+    use std::sync::Arc;
+    use chrono::TimeZone;
+    use streaming_rust::application::planner::DefaultPlanner;
+    use streaming_rust::application::ports::{Planner, RequestContext};
+    use streaming_rust::domain::{SourceKind, DataCategory, Mapping, MappingViews};
+    use streaming_rust::domain::request::{Filters, Request};
+    use streaming_rust::infrastructure::cassandra::query_builder::CassandraQueryBuilder;
+    use streaming_rust::infrastructure::antlr_parser::AntlrFilterParser;
+    use streaming_rust::application::filter_engine::FilterProvider;
+
+    let watermark = chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+    
+    let mapping = Mapping {
+        id: 536013751.into(),
+        data_category: DataCategory::Curves,
+        cassandra_id: Some("test:1".to_string()),
+        hyperscale_id: None,
+        mesap_id: None,
+        source: SourceKind::Cassandra,
+        view_name: "TestView".to_string(),
+        views: MappingViews {
+            latest_version: String::new(),
+            latest_reference_time: String::new(),
+            latest_version_with_created_on: String::new(),
+            latest_reference_time_with_created_on: String::new(),
+            get_by_created_on: String::new(),
+            get_by_created_on_latest_reference_time: String::new(),
+        },
+        index_field: "QuoteDateIndex".to_string(),
+        resolution: "P1D".to_string(),
+        switch_over: String::new(),
+        split_query: true,
+        timezone: "Europe/Zurich".to_string(),
+        columns: vec![],
+    };
+
+    let resolver = Arc::new(MockMappingResolver { watermark, mapping });
+    let parser = Arc::new(AntlrFilterParser::new());
+    let filter_provider = Arc::new(FilterProvider::new(Arc::new(MockRepository)));
+    let cassandra_builder = CassandraQueryBuilder::new(std::collections::HashMap::new(), None);
+    
+    let planner = DefaultPlanner::new(resolver, parser, filter_provider, cassandra_builder);
+
+    // Context
+    let ctx = RequestContext {
+        stage: "development".to_string(),
+        is_mesap_endpoint: false,
+        data_category: DataCategory::Curves,
+    };
+
+    // 1. Query < watermark (2023-12-30T00:00:00Z)
+    let req1 = Request {
+        ids: vec![536013751.into()],
+        version_as_of: None,
+        filters: Some(Filters {
+            expressions: vec!["ReferenceTime = 2023-12-30T00:00:00+00:00".to_string()],
+            filter_time_zone: Some("Europe/Zurich".to_string()),
+            shape: None,
+        }),
+        transformations: None,
+        columns: None,
+        include_deleted: None,
+    };
+
+    let plan1 = planner.build_plan(ctx.clone(), vec![req1]).await.unwrap();
+    assert_eq!(plan1.steps.len(), 1);
+    assert_eq!(plan1.steps[0].command.source, SourceKind::Cassandra);
+
+    // 2. Query >= watermark (2024-01-02T00:00:00Z)
+    let req2 = Request {
+        ids: vec![536013751.into()],
+        version_as_of: None,
+        filters: Some(Filters {
+            expressions: vec!["ReferenceTime = 2024-01-02T00:00:00+00:00".to_string()],
+            filter_time_zone: Some("Europe/Zurich".to_string()),
+            shape: None,
+        }),
+        transformations: None,
+        columns: None,
+        include_deleted: None,
+    };
+
+    let plan2 = planner.build_plan(ctx, vec![req2]).await.unwrap();
+    assert_eq!(plan2.steps.len(), 1);
+    assert_eq!(plan2.steps[0].command.source, SourceKind::Cmdp);
+}
+
