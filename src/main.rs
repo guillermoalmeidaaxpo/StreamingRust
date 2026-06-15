@@ -184,6 +184,7 @@ async fn main() {
         pipeline,
         auth_config: config.auth.clone(),
         meta_config: config.meta.clone(),
+        execution_config: config.execution.clone(),
         validation_resolver,
         jwk_store: Arc::new(streaming_rust::infrastructure::auth::middleware::JwkStore::new(config.auth.issuer.clone())),
         license_validator,

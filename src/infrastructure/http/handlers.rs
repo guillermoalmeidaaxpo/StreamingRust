@@ -45,6 +45,71 @@ fn resolve_context(uri: &Uri, default_stage: &str) -> crate::application::ports:
     }
 }
 
+struct BufferedItem {
+    id: crate::domain::Identifier,
+    fields: std::collections::HashMap<String, Vec<serde_json::Value>>,
+    count: usize,
+}
+
+impl BufferedItem {
+    fn new(item: crate::domain::DataItem) -> Self {
+        let mut fields = std::collections::HashMap::new();
+        let mut count = 0;
+        for (k, v) in item.fields {
+            if k.eq_ignore_ascii_case("Identifier") {
+                continue;
+            }
+            if let serde_json::Value::Array(arr) = v {
+                count = std::cmp::max(count, arr.len());
+                fields.insert(k, arr);
+            } else {
+                count = std::cmp::max(count, 1);
+                fields.insert(k, vec![v]);
+            }
+        }
+        if count == 0 {
+            count = 1;
+        }
+        Self {
+            id: item.id,
+            fields,
+            count,
+        }
+    }
+
+    fn merge(&mut self, item: crate::domain::DataItem) {
+        let mut added = 0;
+        for (k, v) in item.fields {
+            if k.eq_ignore_ascii_case("Identifier") {
+                continue;
+            }
+            let entry = self.fields.entry(k).or_default();
+            if let serde_json::Value::Array(arr) = v {
+                added = std::cmp::max(added, arr.len());
+                entry.extend(arr);
+            } else {
+                added = std::cmp::max(added, 1);
+                entry.push(v);
+            }
+        }
+        if added == 0 {
+            added = 1;
+        }
+        self.count += added;
+    }
+
+    fn into_data_item(self) -> crate::domain::DataItem {
+        let mut fields = std::collections::HashMap::new();
+        for (k, v) in self.fields {
+            fields.insert(k, serde_json::Value::Array(v));
+        }
+        crate::domain::DataItem {
+            id: self.id,
+            fields,
+        }
+    }
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TsResponse {
@@ -74,8 +139,24 @@ pub async fn transactional(
 
     let response = match state.pipeline.execute(ctx, payload).await {
         Ok(data) => {
+            let mut grouped: std::collections::HashMap<crate::domain::Identifier, BufferedItem> = std::collections::HashMap::new();
+            let mut order = Vec::new();
+            for item in data {
+                let id = item.id;
+                if let Some(b) = grouped.get_mut(&id) {
+                    b.merge(item);
+                } else {
+                    grouped.insert(id, BufferedItem::new(item));
+                    order.push(id);
+                }
+            }
+
+            let grouped_data: Vec<crate::domain::DataItem> = order.into_iter()
+                .map(|id| grouped.remove(&id).unwrap().into_data_item())
+                .collect();
+
             let res = TsResponse {
-                transactional_data: data,
+                transactional_data: grouped_data,
                 reference_data,
             };
             (StatusCode::OK, Json(res)).into_response()
@@ -119,6 +200,7 @@ pub async fn transactional_stream(
                 "application/json"
             };
 
+            let stream_batch_size = state.execution_config.stream_batch_size;
             let response_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;
                 let mut count = 0;
@@ -128,30 +210,57 @@ pub async fn transactional_stream(
                     buffer.push('[');
                 }
                 
+                let mut buffered_item: Option<BufferedItem> = None;
+                
                 while let Some(item_result) = stream.next().await {
                     let item = item_result.map_err(|e| {
                         tracing::error!("Error in transactional_stream pipeline ({}): {:?}", path_clone, e);
                         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                     })?;
                     
-                    let serialized = serde_json::to_string(&item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                    if let Some(mut b) = buffered_item.take() {
+                        if b.id == item.id && b.count < stream_batch_size {
+                            b.merge(item);
+                            buffered_item = Some(b);
+                        } else {
+                            let data_item = b.into_data_item();
+                            let serialized = serde_json::to_string(&data_item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                            
+                            if is_ndjson {
+                                buffer.push_str(&serialized);
+                                buffer.push('\n');
+                            } else {
+                                if count > 0 {
+                                    buffer.push(',');
+                                }
+                                buffer.push_str(&serialized);
+                            }
+                            count += 1;
+                            
+                            if buffer.len() >= 65536 {
+                                let chunk = std::mem::replace(&mut buffer, String::with_capacity(65536));
+                                yield chunk;
+                            }
+                            
+                            buffered_item = Some(BufferedItem::new(item));
+                        }
+                    } else {
+                        buffered_item = Some(BufferedItem::new(item));
+                    }
+                }
+                
+                if let Some(b) = buffered_item {
+                    let data_item = b.into_data_item();
+                    let serialized = serde_json::to_string(&data_item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
                     
                     if is_ndjson {
-                        let mut line = serialized;
-                        line.push('\n');
-                        buffer.push_str(&line);
+                        buffer.push_str(&serialized);
+                        buffer.push('\n');
                     } else {
                         if count > 0 {
                             buffer.push(',');
                         }
                         buffer.push_str(&serialized);
-                    }
-                    
-                    count += 1;
-                    
-                    if buffer.len() >= 65536 {
-                        let chunk = std::mem::replace(&mut buffer, String::with_capacity(65536));
-                        yield chunk;
                     }
                 }
                 

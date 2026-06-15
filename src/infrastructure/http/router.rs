@@ -8,7 +8,7 @@ use crate::application::pipeline::Pipeline;
 use super::handlers;
 use crate::infrastructure::auth::middleware::auth_middleware;
 use crate::infrastructure::http::validation_middleware::validation_middleware;
-use crate::infrastructure::config::{AuthConfig, MetaConfig};
+use crate::infrastructure::config::{AuthConfig, MetaConfig, ExecutionConfig};
 use crate::application::validator::RequestValidationStrategyResolver;
 use crate::infrastructure::auth::middleware::JwkStore;
 use crate::application::ports::LicenseValidator;
@@ -18,6 +18,7 @@ pub struct AppState {
     pub pipeline: Arc<Pipeline>,
     pub auth_config: AuthConfig,
     pub meta_config: MetaConfig,
+    pub execution_config: ExecutionConfig,
     pub validation_resolver: Arc<RequestValidationStrategyResolver>,
     pub jwk_store: Arc<JwkStore>,
     pub license_validator: Arc<dyn LicenseValidator>,
