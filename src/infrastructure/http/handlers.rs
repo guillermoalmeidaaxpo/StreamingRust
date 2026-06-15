@@ -68,6 +68,7 @@ pub async fn transactional(
 
 pub async fn transactional_stream(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     uri: Uri,
     Json(payload): Json<Vec<Request>>,
 ) -> impl IntoResponse {
@@ -76,32 +77,63 @@ pub async fn transactional_stream(
     tracing::info!("Starting request - Endpoint: POST {}, Payload: {:?}", path, payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
+    let accept_header = headers.get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let is_ndjson = accept_header.to_lowercase().contains("application/x-ndjson")
+        || accept_header.to_lowercase().contains("ndjson");
+
     let setup_start = std::time::Instant::now();
     match state.pipeline.stream(ctx, payload).await {
         Ok(stream) => {
             let setup_duration = setup_start.elapsed();
             tracing::info!("Stream initialized - Endpoint: POST {}, Setup duration: {:?}", path, setup_duration);
             let path_clone = path.clone();
-            let ndjson_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
+            
+            let content_type = if is_ndjson {
+                "application/x-ndjson"
+            } else {
+                "application/json"
+            };
+
+            let response_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, std::io::Error>> + Send>> = Box::pin(try_stream! {
                 let mut stream = stream;
                 let mut count = 0;
                 let mut buffer = String::with_capacity(65536);
+                
+                if !is_ndjson {
+                    buffer.push('[');
+                }
                 
                 while let Some(item_result) = stream.next().await {
                     let item = item_result.map_err(|e| {
                         tracing::error!("Error in transactional_stream pipeline ({}): {:?}", path_clone, e);
                         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                     })?;
-                    let mut line = serde_json::to_string(&item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-                    line.push('\n');
                     
-                    buffer.push_str(&line);
+                    let serialized = serde_json::to_string(&item).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                    
+                    if is_ndjson {
+                        let mut line = serialized;
+                        line.push('\n');
+                        buffer.push_str(&line);
+                    } else {
+                        if count > 0 {
+                            buffer.push(',');
+                        }
+                        buffer.push_str(&serialized);
+                    }
+                    
                     count += 1;
                     
                     if buffer.len() >= 65536 {
                         let chunk = std::mem::replace(&mut buffer, String::with_capacity(65536));
                         yield chunk;
                     }
+                }
+                
+                if !is_ndjson {
+                    buffer.push(']');
                 }
                 
                 if !buffer.is_empty() {
@@ -113,8 +145,8 @@ pub async fn transactional_stream(
 
             Response::builder()
                 .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/x-ndjson")
-                .body(axum::body::Body::from_stream(ndjson_stream))
+                .header(header::CONTENT_TYPE, content_type)
+                .body(axum::body::Body::from_stream(response_stream))
                 .unwrap()
         }
         Err(err) => {
