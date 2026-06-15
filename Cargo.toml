@@ -56,6 +56,9 @@ reqwest = { version = "0.13.4", features = ["json", "rustls"] }
 [build-dependencies]
 antlr4rust = "0.5.2"
 
-
-
-
+[profile.release]
+opt-level = 3        # Max speed optimizations
+lto = "thin"         # Fast, parallel Link-Time Optimization
+codegen-units = 16   # Compiles multiple parts in parallel (much faster builds)
+panic = "unwind"     # Keep standard panics for easy debugging
+strip = "debuginfo"  # Strips heavy debug info
