@@ -6,14 +6,14 @@ use std::sync::Arc;
 
 pub struct FilterProvider {
     mapper: FilterMapper,
-    repository: Arc<dyn Repository>,
+    _repository: Arc<dyn Repository>,
 }
 
 impl FilterProvider {
     pub fn new(repository: Arc<dyn Repository>) -> Self {
         Self {
             mapper: FilterMapper::new(),
-            repository,
+            _repository: repository,
         }
     }
 

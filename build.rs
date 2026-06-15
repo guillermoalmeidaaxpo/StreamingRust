@@ -5,7 +5,6 @@ fn main() {
     println!("cargo:rerun-if-changed=grammar/OutboundAPILexer.g4");
     println!("cargo:rerun-if-changed=grammar/OutboundAPIParser.g4");
 
-    let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new("src/infrastructure/generated");
 
     // Ensure the destination directory exists

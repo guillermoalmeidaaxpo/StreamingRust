@@ -22,12 +22,14 @@ pub struct Principal {
 
 // Custom deserializer for aud since it can be string or array in JWT
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 #[serde(untagged)]
 enum Aud {
     Single(String),
     Multiple(Vec<String>),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct Claims {
     sub: Option<String>,

@@ -10,7 +10,6 @@ use streaming_rust::infrastructure::mssql::repository::MssqlRepository;
 use streaming_rust::infrastructure::cassandra::repository::ScyllaRepository;
 use streaming_rust::infrastructure::http::router::{create_router, AppState};
 use streaming_rust::infrastructure::config::AppConfig;
-use async_trait::async_trait;
 use tracing_subscriber::prelude::*;
 
 use streaming_rust::infrastructure::throttling::{RedisCmdpGlobalConnectionGate, NullConnectionGate, ConnectionGate};

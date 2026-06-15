@@ -135,6 +135,7 @@ impl MssqlStatisticsService {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct DbStatistics {
     mdo_id: i64,

@@ -424,7 +424,7 @@ struct SqlBuilder {
     mapping: Mapping,
     parameters: HashMap<String, serde_json::Value>,
     next_param: i32,
-    json_value_column: String,
+    _json_value_column: String,
 }
 
 impl SqlBuilder {
@@ -433,7 +433,7 @@ impl SqlBuilder {
             mapping,
             parameters: HashMap::new(),
             next_param: 0,
-            json_value_column: String::new(),
+            _json_value_column: String::new(),
         }
     }
 
@@ -442,7 +442,7 @@ impl SqlBuilder {
             mapping,
             parameters: HashMap::new(),
             next_param: 0,
-            json_value_column,
+            _json_value_column: json_value_column,
         }
     }
 

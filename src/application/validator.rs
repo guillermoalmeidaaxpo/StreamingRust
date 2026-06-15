@@ -269,13 +269,13 @@ impl DataRowsNumberValidator {
 
 // Keeping the original RequestValidator as the main entry point if needed
 pub struct RequestValidator {
-    column_name_regex: Regex,
+    _column_name_regex: Regex,
 }
 
 impl RequestValidator {
     pub fn new() -> Self {
         Self {
-            column_name_regex: Regex::new(r"^[a-zA-Z0-9]+$").unwrap(),
+            _column_name_regex: Regex::new(r"^[a-zA-Z0-9]+$").unwrap(),
         }
     }
 }
