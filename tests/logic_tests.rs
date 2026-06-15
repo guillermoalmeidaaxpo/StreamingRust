@@ -203,7 +203,7 @@ async fn test_antlr_filter_parsing() {
         assert_eq!(c.field, "ReferenceTime");
         assert_eq!(c.operator, "=");
         assert_eq!(c.value.kind, FilterValueKind::PointInTime);
-        assert_eq!(c.value.raw, "2024-04-26T00:00:00");
+        assert_eq!(c.value.raw, "2024-04-25T22:00:00.000000000Z");
     } else {
         panic!("Expected comparison node");
     }
@@ -287,7 +287,7 @@ async fn test_planner_hybrid_routing() {
     let mapping = Mapping {
         id: 536013751.into(),
         data_category: DataCategory::Curves,
-        cassandra_id: Some("test:1".to_string()),
+        cassandra_id: Some("power:1".to_string()),
         hyperscale_id: None,
         mesap_id: None,
         source: SourceKind::Cassandra,
@@ -311,7 +311,10 @@ async fn test_planner_hybrid_routing() {
     let resolver = Arc::new(MockMappingResolver { watermark, mapping });
     let parser = Arc::new(AntlrFilterParser::new());
     let filter_provider = Arc::new(FilterProvider::new(Arc::new(MockRepository)));
-    let cassandra_builder = CassandraQueryBuilder::new(std::collections::HashMap::new(), None);
+    
+    let mut table_mappings = std::collections::HashMap::new();
+    table_mappings.insert("power".to_string(), "hpfc".to_string());
+    let cassandra_builder = CassandraQueryBuilder::new(table_mappings, None);
     
     let planner = DefaultPlanner::new(resolver, parser, filter_provider, cassandra_builder);
 
@@ -327,7 +330,7 @@ async fn test_planner_hybrid_routing() {
         ids: vec![536013751.into()],
         version_as_of: None,
         filters: Some(Filters {
-            expressions: vec!["ReferenceTime = 2023-12-30T00:00:00+00:00".to_string()],
+            expressions: vec!["ReferenceTime = 2023-12-30T00:00:00".to_string()],
             filter_time_zone: Some("Europe/Zurich".to_string()),
             shape: None,
         }),
@@ -345,7 +348,7 @@ async fn test_planner_hybrid_routing() {
         ids: vec![536013751.into()],
         version_as_of: None,
         filters: Some(Filters {
-            expressions: vec!["ReferenceTime = 2024-01-02T00:00:00+00:00".to_string()],
+            expressions: vec!["ReferenceTime = 2024-01-02T00:00:00".to_string()],
             filter_time_zone: Some("Europe/Zurich".to_string()),
             shape: None,
         }),
