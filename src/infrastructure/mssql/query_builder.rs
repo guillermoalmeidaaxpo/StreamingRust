@@ -544,9 +544,10 @@ fn column_sort_value(column: &ColumnMapping) -> i32 {
     }
 }
 
+#[allow(dead_code)]
 struct SelectColumnSpec {
     inner: String,
-    _outer: String,
+    outer: String,
 }
 
 fn cmdp_select_column_specs(columns: &[ColumnMapping], requested_columns: &[String]) -> Vec<SelectColumnSpec> {
