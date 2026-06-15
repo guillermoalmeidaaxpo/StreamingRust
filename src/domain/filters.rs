@@ -35,7 +35,7 @@ pub struct FilterValue {
     pub arguments: Vec<LatestExpression>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum FilterValueKind {
     PointInTime,
     TimeInterval,
