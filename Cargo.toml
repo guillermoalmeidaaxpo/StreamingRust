@@ -62,5 +62,10 @@ lto = "thin"         # Fast, parallel Link-Time Optimization
 codegen-units = 16   # Compiles multiple parts in parallel (very fast build times)
 panic = "abort"      # Removes stack unwinding to reduce size and compile quickly
 strip = true         # Strips all symbols and debug info for minimal file size
+debug = false        # Disables PDB generation for release builds
+
+[profile.dev]
+debug = 0            # Disables PDB generation for development runs (cargo run)
+
 
 
