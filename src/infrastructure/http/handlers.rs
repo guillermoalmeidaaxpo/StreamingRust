@@ -174,29 +174,28 @@ pub async fn generic_csv(
             let mut header_sent = false;
 
             for item in items {
+                let mut fields = item.fields.clone();
+                if !fields.contains_key("Identifier") {
+                    fields.insert("Identifier".to_string(), serde_json::Value::Number(item.id.into()));
+                }
+
                 if !header_sent {
-                    let mut header = "Id".to_string();
-                    let mut sorted_keys: Vec<_> = item.fields.keys().collect();
+                    let mut sorted_keys: Vec<_> = fields.keys().collect();
                     sorted_keys.sort();
-                    for key in &sorted_keys {
-                        header.push(',');
-                        header.push_str(key);
-                    }
-                    header.push('\n');
+                    let header = sorted_keys.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(",");
                     csv_output.push_str(&header);
+                    csv_output.push('\n');
                     header_sent = true;
                 }
 
-                let mut line = item.id.to_string();
-                let mut sorted_keys: Vec<_> = item.fields.keys().collect();
+                let mut sorted_keys: Vec<_> = fields.keys().collect();
                 sorted_keys.sort();
-                for key in sorted_keys {
-                    line.push(',');
-                    let value = &item.fields[key];
-                    line.push_str(&value.to_string().replace("\"", ""));
-                }
-                line.push('\n');
-                csv_output.push_str(&line);
+                let line_vals: Vec<String> = sorted_keys.iter().map(|key| {
+                    let value = &fields[*key];
+                    value.to_string().replace("\"", "")
+                }).collect();
+                csv_output.push_str(&line_vals.join(","));
+                csv_output.push('\n');
             }
 
             Response::builder()
@@ -245,30 +244,29 @@ pub async fn generic_csv_stream(
                         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                     })?;
                     
+                    let mut fields = item.fields.clone();
+                    if !fields.contains_key("Identifier") {
+                        fields.insert("Identifier".to_string(), serde_json::Value::Number(item.id.into()));
+                    }
+
                     if !header_sent {
-                        let mut header = "Id".to_string();
-                        let mut sorted_keys: Vec<_> = item.fields.keys().collect();
+                        let mut sorted_keys: Vec<_> = fields.keys().collect();
                         sorted_keys.sort();
-                        for key in &sorted_keys {
-                            header.push(',');
-                            header.push_str(key);
-                        }
-                        header.push('\n');
+                        let header = sorted_keys.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(",");
                         buffer.push_str(&header);
+                        buffer.push('\n');
                         header_sent = true;
                     }
 
-                    let mut line = item.id.to_string();
-                    let mut sorted_keys: Vec<_> = item.fields.keys().collect();
+                    let mut sorted_keys: Vec<_> = fields.keys().collect();
                     sorted_keys.sort();
-                    for key in sorted_keys {
-                        line.push(',');
-                        let value = &item.fields[key];
-                        line.push_str(&value.to_string().replace("\"", ""));
-                    }
-                    line.push('\n');
+                    let line_vals: Vec<String> = sorted_keys.iter().map(|key| {
+                        let value = &fields[*key];
+                        value.to_string().replace("\"", "")
+                    }).collect();
                     
-                    buffer.push_str(&line);
+                    buffer.push_str(&line_vals.join(","));
+                    buffer.push('\n');
                     count += 1;
                     
                     if buffer.len() >= 65536 {

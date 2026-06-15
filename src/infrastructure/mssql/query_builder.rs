@@ -523,14 +523,140 @@ fn is_comparison_operator(operator: &str) -> bool {
     matches!(operator, "=" | ">" | ">=" | "<" | "<=")
 }
 
-fn select_columns(_columns: &[ColumnMapping], _requested_columns: &[String]) -> Vec<String> {
-    // Stub implementation returning all or requested
-    vec!["[d].*".to_string()]
+fn first_non_empty(values: &[&str]) -> String {
+    for &val in values {
+        if !val.trim().is_empty() {
+            return val.to_string();
+        }
+    }
+    String::new()
 }
 
-fn order_columns(_columns: &[ColumnMapping]) -> Vec<String> {
-    vec![]
+fn column_sort_value(column: &ColumnMapping) -> i32 {
+    if let Some(ord) = column.key_column_ordering {
+        ord
+    } else if let Some(priority) = column.order_priority {
+        1000 + priority
+    } else if let Some(val_ord) = column.value_column_ordering {
+        2000 + val_ord
+    } else {
+        3000
+    }
 }
+
+struct SelectColumnSpec {
+    inner: String,
+    _outer: String,
+}
+
+fn cmdp_select_column_specs(columns: &[ColumnMapping], requested_columns: &[String]) -> Vec<SelectColumnSpec> {
+    let requested: std::collections::HashSet<String> = requested_columns.iter()
+        .map(|c| c.trim().to_lowercase())
+        .filter(|c| !c.is_empty())
+        .collect();
+
+    let mut selected = Vec::new();
+    for column in columns {
+        if column.source_name.trim().is_empty() {
+            continue;
+        }
+        if !requested.is_empty() && !column.is_key {
+            let matches_mds = requested.contains(&column.mds_name.trim().to_lowercase());
+            let matches_source = requested.contains(&column.source_name.trim().to_lowercase());
+            if !matches_mds && !matches_source {
+                continue;
+            }
+        }
+        if column.is_key || column.is_projectable {
+            selected.push(column.clone());
+        }
+    }
+
+    if selected.is_empty() {
+        return Vec::new();
+    }
+
+    selected.sort_by(|a, b| {
+        let sa = column_sort_value(a);
+        let sb = column_sort_value(b);
+        if sa == sb {
+            a.mds_name.cmp(&b.mds_name)
+        } else {
+            sa.cmp(&sb)
+        }
+    });
+
+    let mut seen = std::collections::HashSet::new();
+    let mut specs = Vec::new();
+    for column in selected {
+        let key = column.source_name.trim().to_lowercase();
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.insert(key);
+
+        let output_name = first_non_empty(&[&column.mds_name, &column.source_name]);
+        let mut expression = qualify(&column.source_name);
+        if !output_name.is_empty() && !output_name.eq_ignore_ascii_case(&column.source_name) {
+            expression.push_str(" AS ");
+            expression.push_str(&quote_identifier(&output_name));
+        }
+
+        specs.push(SelectColumnSpec {
+            inner: expression,
+            outer: format!("[d].{}", quote_identifier(&output_name)),
+        });
+    }
+
+    specs
+}
+
+fn select_columns(columns: &[ColumnMapping], requested_columns: &[String]) -> Vec<String> {
+    let specs = cmdp_select_column_specs(columns, requested_columns);
+    if specs.is_empty() {
+        return vec!["[d].*".to_string()];
+    }
+    specs.into_iter().map(|spec| spec.inner).collect()
+}
+
+fn order_columns(columns: &[ColumnMapping]) -> Vec<String> {
+    let mut ordered = Vec::new();
+    for column in columns {
+        if column.source_name.trim().is_empty() {
+            continue;
+        }
+        if column.order_priority.is_some() || column.key_column_ordering.is_some() {
+            ordered.push(column.clone());
+        }
+    }
+
+    if ordered.is_empty() {
+        for name in &["ReferenceTime", "DeliveryStart"] {
+            for column in columns {
+                if column.mds_name.eq_ignore_ascii_case(name) && !column.source_name.trim().is_empty() {
+                    ordered.push(column.clone());
+                }
+            }
+        }
+    }
+
+    ordered.sort_by(|a, b| {
+        column_sort_value(a).cmp(&column_sort_value(b))
+    });
+
+    let mut order = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for column in ordered {
+        let key = column.source_name.trim().to_lowercase();
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.insert(key);
+        order.push(qualify(&column.source_name));
+    }
+    order
+}
+
 
 fn hyperscale_view_name(
     mapping: &Mapping,
@@ -590,12 +716,18 @@ fn hyperscale_select_columns(columns: &[ColumnMapping], requested_columns: &[Str
         if col.is_key {
             let is_identifier_or_mdo_id = col.mds_name.eq_ignore_ascii_case("Identifier") || col.mds_name.eq_ignore_ascii_case("MdoId");
             if include_identifier || !is_identifier_or_mdo_id {
-                let col_name = if col.mds_name.eq_ignore_ascii_case("Identifier") {
+                let physical_name = if col.mds_name.eq_ignore_ascii_case("Identifier") {
                     "MdoId".to_string()
                 } else {
                     col.mds_name.clone()
                 };
-                key_cols.push(col_name);
+                let mut expr = qualify(&physical_name);
+                let output_name = first_non_empty(&[&col.mds_name, &col.source_name]);
+                if !output_name.is_empty() && !output_name.eq_ignore_ascii_case(&physical_name) {
+                    expr.push_str(" AS ");
+                    expr.push_str(&quote_identifier(&output_name));
+                }
+                key_cols.push(expr);
             }
         }
     }
