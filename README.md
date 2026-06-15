@@ -32,7 +32,7 @@ For normal development and debug runs:
 # Clean project
 cargo clean
 
-# Run local development server (listens on 0.0.0.0:8080)
+# Run local development server (listens on 0.0.0.0:8081)
 cargo run
 ```
 *Note: Debug symbol generation (`.pdb` file creation) is disabled for local development (`[profile.dev]`) to conserve local disk space.*
@@ -86,7 +86,7 @@ docker build -t streaming-rust:latest .
 ### 2. Run the Container
 Pass the required configuration or database variables via environment flags:
 ```bash
-docker run -d -p 8080:8080 \
+docker run -d -p 8081:8081 \
   -e OUTBOUND_ENV=production \
   -e LOG_FORMAT=json \
   --name streaming-rust-api \

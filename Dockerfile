@@ -54,7 +54,7 @@ COPY --from=builder /usr/src/app/target/release/streaming-rust /app/streaming-ru
 COPY configs/ /app/configs/
 
 # Expose the API port
-EXPOSE 8080
+EXPOSE 8081
 
 # Configure production environment defaults
 ENV OUTBOUND_ENV=production
