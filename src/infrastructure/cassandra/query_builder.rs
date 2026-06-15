@@ -41,6 +41,7 @@ impl CassandraQueryBuilder {
             let mut parameters = HashMap::new();
             parameters.insert("projection_columns".to_string(), serde_json::to_value(self.cassandra_projection_columns(&command.columns)).unwrap());
             parameters.insert("include_offset".to_string(), serde_json::Value::Bool(command.include_offset));
+            parameters.insert("timezone".to_string(), serde_json::Value::String(mapping.timezone.clone()));
 
             queries.push(ExecutableQuery {
                 id: mapping.id,

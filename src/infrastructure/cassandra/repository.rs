@@ -115,13 +115,19 @@ fn map_scylla_row(
         f64,
     )>().map_err(|e| anyhow::anyhow!("Failed to decode Scylla row: {:?}", e))?;
 
-    let ref_time = chrono::Utc.with_ymd_and_hms(
+    let timezone_str = query.parameters.get("timezone").and_then(|v| v.as_str()).unwrap_or("Europe/Zurich");
+    let tz: chrono_tz::Tz = timezone_str.parse().unwrap_or(chrono_tz::Tz::UTC);
+
+    let ref_naive = chrono::NaiveDate::from_ymd_opt(
         qte_y as i32,
         qte_m as u32,
         qte_d as u32,
-        0, 0, 0
-    ).unwrap();
-    let ref_time_str = ref_time.format("%Y-%m-%dT%H:%M:%S.000").to_string();
+    ).unwrap().and_hms_opt(0, 0, 0).unwrap();
+
+    let ref_time = tz.from_local_datetime(&ref_naive).earliest().unwrap_or_else(|| {
+        chrono::Utc.from_local_datetime(&ref_naive).unwrap().with_timezone(&tz)
+    });
+    let ref_time_str = ref_time.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string();
 
     let offset_secs = (del_offset as i32) * 3600;
     let offset = chrono::FixedOffset::east_opt(offset_secs).unwrap();
