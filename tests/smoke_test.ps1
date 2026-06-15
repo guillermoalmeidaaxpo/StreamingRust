@@ -2,7 +2,7 @@
 # Run this script while 'cargo run' is active.
 param(
     [string]$Token,
-    [string]$BaseUrl = "http://localhost:8080/api/v1",
+    [string]$BaseUrl = "http://localhost:8081/api/v1",
     [string]$Endpoint,
     [string]$Payload
 )
