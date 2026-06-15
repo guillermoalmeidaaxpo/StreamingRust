@@ -45,6 +45,13 @@ fn resolve_context(uri: &Uri, default_stage: &str) -> crate::application::ports:
     }
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TsResponse {
+    transactional_data: Vec<crate::domain::DataItem>,
+    reference_data: Vec<crate::domain::Identifier>,
+}
+
 pub async fn transactional(
     State(state): State<Arc<AppState>>,
     uri: Uri,
@@ -55,8 +62,24 @@ pub async fn transactional(
     tracing::info!("Starting request - Endpoint: POST {}, Payload: {:?}", path, payload);
     let ctx = resolve_context(&uri, &state.meta_config.stage);
 
+    let mut reference_data = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for req in &payload {
+        for id in &req.ids {
+            if seen.insert(*id) {
+                reference_data.push(*id);
+            }
+        }
+    }
+
     let response = match state.pipeline.execute(ctx, payload).await {
-        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Ok(data) => {
+            let res = TsResponse {
+                transactional_data: data,
+                reference_data,
+            };
+            (StatusCode::OK, Json(res)).into_response()
+        }
         Err(err) => {
             tracing::error!("Error in transactional endpoint ({}): {:?}", path, err);
             (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
