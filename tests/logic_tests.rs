@@ -184,3 +184,56 @@ fn test_shape_validation_failures() {
     };
     assert!(strategy.validate(&[req_overlapping]).is_err());
 }
+
+#[tokio::test]
+async fn test_antlr_filter_parsing() {
+    use streaming_rust::infrastructure::antlr_parser::AntlrFilterParser;
+    use streaming_rust::application::ports::FilterParser;
+    use streaming_rust::domain::filters::{FilterNode, FilterValueKind};
+
+    let parser = AntlrFilterParser::new();
+    
+    // 1. Point in time
+    let exprs_pit = vec!["ReferenceTime = 2024-04-26T00:00:00".to_string()];
+    let res = parser.parse(&exprs_pit, &Some("Europe/Zurich".to_string())).await;
+    assert!(res.is_ok());
+    let filter_set = res.unwrap();
+    assert_eq!(filter_set.nodes.len(), 1);
+    if let FilterNode::Comparison(c) = &filter_set.nodes[0] {
+        assert_eq!(c.field, "ReferenceTime");
+        assert_eq!(c.operator, "=");
+        assert_eq!(c.value.kind, FilterValueKind::PointInTime);
+        assert_eq!(c.value.raw, "2024-04-26T00:00:00");
+    } else {
+        panic!("Expected comparison node");
+    }
+
+    // 2. Latest
+    let exprs_latest = vec!["ReferenceTime = latest(ReferenceTime <= 2024-04-26T00:00:00)".to_string()];
+    let res = parser.parse(&exprs_latest, &Some("Europe/Zurich".to_string())).await;
+    assert!(res.is_ok());
+    let filter_set = res.unwrap();
+    assert_eq!(filter_set.nodes.len(), 1);
+    if let FilterNode::Comparison(c) = &filter_set.nodes[0] {
+        assert_eq!(c.field, "ReferenceTime");
+        assert_eq!(c.operator, "=");
+        assert_eq!(c.value.kind, FilterValueKind::Latest);
+    } else {
+        panic!("Expected comparison node");
+    }
+
+    // 3. LatestGlobal
+    let exprs_lg = vec!["ReferenceTime = latestGlobal()".to_string()];
+    let res = parser.parse(&exprs_lg, &Some("Europe/Zurich".to_string())).await;
+    assert!(res.is_ok());
+    let filter_set = res.unwrap();
+    assert_eq!(filter_set.nodes.len(), 1);
+    if let FilterNode::Comparison(c) = &filter_set.nodes[0] {
+        assert_eq!(c.field, "ReferenceTime");
+        assert_eq!(c.operator, "=");
+        assert_eq!(c.value.kind, FilterValueKind::LatestGlobal);
+    } else {
+        panic!("Expected comparison node");
+    }
+}
+
