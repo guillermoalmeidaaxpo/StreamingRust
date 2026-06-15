@@ -93,6 +93,13 @@ docker run -d -p 8080:8080 \
   streaming-rust:latest
 ```
 
+### 3. Docker Build Optimization (Dependency Caching)
+The `Dockerfile` uses a dependency caching technique (also known as the "dummy build pattern") to keep build times extremely fast:
+* **Pre-copying configurations**: We copy only `Cargo.toml` and `Cargo.lock` first.
+* **Creating dummy files**: We generate temporary, empty `src/main.rs`, `src/lib.rs`, and `build.rs` files.
+* **Compiling dependencies**: Running `cargo build --release` compiles and caches all third-party dependencies as a separate Docker layer.
+* **Compiling real code**: When the actual source files are copied in the next step, Docker reuses the cached layer, compiling only your application code. This reduces rebuild times from 10 minutes to **under 15 seconds**.
+
 ---
 
 ## Migration Notes
