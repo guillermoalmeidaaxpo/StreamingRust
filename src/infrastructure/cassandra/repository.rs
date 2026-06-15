@@ -161,14 +161,30 @@ fn map_scylla_row(
     fields.insert("DeliveryEnd".to_string(), serde_json::Value::String(del_end_str));
     fields.insert("Value".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(value_rounded).unwrap()));
     fields.insert("LegacyDeliveryBucketNumber".to_string(), serde_json::Value::Null);
+    fields.insert("RelativeDeliveryPeriod".to_string(), serde_json::Value::Null);
 
     let mut projected_fields = HashMap::new();
     if let Some(serde_json::Value::Array(cols)) = query.parameters.get("projection_columns") {
+        let mut contract_cols = vec![
+            "Identifier",
+            "ReferenceTime",
+            "DeliveryStart",
+            "DeliveryEnd",
+            "LegacyDeliveryBucketNumber",
+            "RelativeDeliveryPeriod",
+            "Value",
+        ];
         for col_val in cols {
             if let Some(col) = col_val.as_str() {
-                if let Some(v) = fields.get(col) {
-                    projected_fields.insert(col.to_string(), v.clone());
+                if !contract_cols.iter().any(|c| c.eq_ignore_ascii_case(col)) {
+                    contract_cols.push(col);
                 }
+            }
+        }
+        for col in contract_cols {
+            let actual_key = fields.keys().find(|k| k.eq_ignore_ascii_case(col));
+            if let Some(key) = actual_key {
+                projected_fields.insert(key.clone(), fields[key].clone());
             }
         }
     } else {
