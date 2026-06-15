@@ -2,6 +2,7 @@ use crate::domain::DataItem;
 use crate::application::ports::Command;
 use crate::domain::SourceKind;
 use chrono_tz::Tz;
+use chrono::{TimeZone, DateTime, FixedOffset, Utc};
 
 #[derive(Clone)]
 pub struct TransformationProcessor;
@@ -21,10 +22,15 @@ impl TransformationProcessor {
 
     fn process_item(&self, item: &mut DataItem, command: &Command, target_tz: Option<Tz>) {
         // 1. Timezone conversion
-        if let Some(_tz) = target_tz {
-            for _value in item.fields.values_mut() {
-                // In a real implementation, we'd check if DataValue is a timestamp
-                // and convert it using the target_tz
+        if let Some(tz) = target_tz {
+            for val in item.fields.values_mut() {
+                if let Some(s) = val.as_str() {
+                    if let Some(dt) = parse_datetime(s) {
+                        let local_dt = dt.with_timezone(&tz);
+                        let formatted = local_dt.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string();
+                        *val = serde_json::Value::String(formatted);
+                    }
+                }
             }
         }
 
@@ -34,14 +40,55 @@ impl TransformationProcessor {
         }
     }
 
-    fn calculate_rdp(&self, item: &mut DataItem, _command: &Command) {
-        // Simplified RDP trigger
-        if let (Some(_ref_val), Some(_del_val)) = (item.fields.get("ReferenceTime"), item.fields.get("DeliveryStart")) {
-            // Extract DateTime and call RDPCalculator
+    fn calculate_rdp(&self, item: &mut DataItem, command: &Command) {
+        if let (Some(ref_val), Some(del_val)) = (item.fields.get("ReferenceTime"), item.fields.get("DeliveryStart")) {
+            if let (Some(ref_str), Some(del_str)) = (ref_val.as_str(), del_val.as_str()) {
+                if let (Some(ref_dt), Some(del_dt)) = (parse_datetime(ref_str), parse_datetime(del_str)) {
+                    if !command.mappings.is_empty() {
+                        let mapping = &command.mappings[0];
+                        let resolution = &mapping.resolution;
+                        let period = crate::application::rdp_calculator::RDPCalculator::calculate(
+                            ref_dt.with_timezone(&Utc),
+                            del_dt.with_timezone(&Utc),
+                            resolution,
+                            ""
+                        );
+                        if let Some(p) = period {
+                            item.fields.insert("RelativeDeliveryPeriod".to_string(), serde_json::Value::Number(p.into()));
+                        }
+                    }
+                }
+            }
         }
     }
 
     fn wants_column(&self, command: &Command, name: &str) -> bool {
         command.columns.is_empty() || command.columns.iter().any(|c| c.to_lowercase() == name.to_lowercase())
     }
+}
+
+fn parse_datetime(s: &str) -> Option<DateTime<FixedOffset>> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return Some(dt);
+    }
+    for fmt in &[
+        "%Y-%m-%dT%H:%M:%S.000%:z",
+        "%Y-%m-%dT%H:%M:%S%:z",
+    ] {
+        if let Ok(dt) = DateTime::parse_from_str(s, fmt) {
+            return Some(dt);
+        }
+    }
+    for fmt in &[
+        "%Y-%m-%dT%H:%M:%S.000",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
+            let offset = FixedOffset::east_opt(0).unwrap();
+            let dt_with_offset = DateTime::<FixedOffset>::from_naive_utc_and_offset(dt, offset);
+            return Some(dt_with_offset);
+        }
+    }
+    None
 }
