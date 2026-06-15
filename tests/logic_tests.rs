@@ -216,7 +216,7 @@ async fn test_antlr_filter_parsing() {
     assert_eq!(filter_set.nodes.len(), 1);
     if let FilterNode::Comparison(c) = &filter_set.nodes[0] {
         assert_eq!(c.field, "ReferenceTime");
-        assert_eq!(c.operator, "=");
+        assert_eq!(c.operator, "<=");
         assert_eq!(c.value.kind, FilterValueKind::Latest);
     } else {
         panic!("Expected comparison node");
@@ -276,7 +276,7 @@ async fn test_planner_hybrid_routing() {
     use chrono::TimeZone;
     use streaming_rust::application::planner::DefaultPlanner;
     use streaming_rust::application::ports::{Planner, RequestContext};
-    use streaming_rust::domain::{SourceKind, DataCategory, Mapping, MappingViews};
+    use streaming_rust::domain::{SourceKind, DataCategory, Mapping, MappingViews, ColumnMapping};
     use streaming_rust::domain::request::{Filters, Request};
     use streaming_rust::infrastructure::cassandra::query_builder::CassandraQueryBuilder;
     use streaming_rust::infrastructure::antlr_parser::AntlrFilterParser;
@@ -305,7 +305,18 @@ async fn test_planner_hybrid_routing() {
         switch_over: String::new(),
         split_query: true,
         timezone: "Europe/Zurich".to_string(),
-        columns: vec![],
+        columns: vec![
+            ColumnMapping {
+                mds_name: "ReferenceTime".to_string(),
+                source_name: "ReferenceTime".to_string(),
+                data_type: "DateTime".to_string(),
+                is_key: true,
+                is_projectable: true,
+                order_priority: None,
+                key_column_ordering: None,
+                value_column_ordering: None,
+            }
+        ],
     };
 
     let resolver = Arc::new(MockMappingResolver { watermark, mapping });
