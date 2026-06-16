@@ -26,7 +26,7 @@ impl TransformationProcessor {
             if let Some(s) = val.as_str() {
                 if let Some(dt) = parse_datetime(s) {
                     let local_dt = if let Some(tz) = target_tz {
-                        dt.with_timezone(&tz)
+                        dt.with_timezone(&tz).fixed_offset()
                     } else {
                         dt
                     };
