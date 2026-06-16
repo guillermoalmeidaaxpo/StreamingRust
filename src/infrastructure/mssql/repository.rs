@@ -293,7 +293,9 @@ fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serd
             }
             tiberius::ColumnType::DatetimeOffsetn => {
                 if let Some(dt) = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>(i).ok().flatten() {
-                    serde_json::Value::String(dt.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
+                    let tz: Tz = timezone.parse().unwrap_or(chrono_tz::Europe::Zurich);
+                    let dt_with_tz = dt.with_timezone(&tz);
+                    serde_json::Value::String(dt_with_tz.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
                 } else {
                     serde_json::Value::Null
                 }
