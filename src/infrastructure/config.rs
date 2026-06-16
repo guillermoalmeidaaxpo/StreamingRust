@@ -10,9 +10,9 @@ pub struct AppConfig {
     pub datastores: DatastoresConfig,
     pub database: DatabaseConfig,
     pub execution: ExecutionConfig,
-    #[serde(alias = "CmdpRateLimiter")]
+    #[serde(alias = "CmdpRateLimiter", default)]
     pub cmdp_rate_limiter: CmdpRateLimiterConfig,
-    #[serde(alias = "CmdpGlobalConnectionGate")]
+    #[serde(alias = "CmdpGlobalConnectionGate", default)]
     pub cmdp_global_connection_gate: CmdpGlobalConnectionGateConfig,
 }
 
@@ -31,6 +31,19 @@ pub struct CmdpRateLimiterConfig {
     pub enable_counter_logging: bool,
 }
 
+impl Default for CmdpRateLimiterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            permit_limit: 1000,
+            window_seconds: 1,
+            max_retry_attempts: 5,
+            retry_base_delay_milliseconds: 100,
+            enable_counter_logging: false,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct CmdpGlobalConnectionGateConfig {
     pub enabled: bool,
@@ -44,6 +57,19 @@ pub struct CmdpGlobalConnectionGateConfig {
     pub retry_base_delay_milliseconds: u64,
     #[serde(alias = "EnableCounterLogging")]
     pub enable_counter_logging: bool,
+}
+
+impl Default for CmdpGlobalConnectionGateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_concurrent_cmdp_connections_global_outbound: 10,
+            slot_ttl_seconds: 300,
+            max_retry_attempts: 5,
+            retry_base_delay_milliseconds: 100,
+            enable_counter_logging: false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
