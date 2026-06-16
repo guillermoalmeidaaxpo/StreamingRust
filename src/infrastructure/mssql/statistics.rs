@@ -88,33 +88,33 @@ impl MssqlStatisticsService {
         let row_opt = stream.into_row().await?;
 
         if let Some(row) = row_opt {
-            let mdo_id = row.get::<i64, _>("MdoId").unwrap_or(mdo_id);
+            let mdo_id = row.try_get::<i64, _>("MdoId").ok().flatten().unwrap_or(mdo_id);
             
-            let first_ref_naive = row.get::<chrono::NaiveDateTime, _>("FirstReferenceTime")
-                .ok_or_else(|| anyhow!("Missing FirstReferenceTime"))?;
-            let first_reference_time = DateTime::<Utc>::from_naive_utc_and_offset(first_ref_naive, Utc);
+            let first_reference_time = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>("FirstReferenceTime")?
+                .ok_or_else(|| anyhow!("Missing FirstReferenceTime"))?
+                .with_timezone(&Utc);
 
-            let last_ref_naive = row.get::<chrono::NaiveDateTime, _>("LastReferenceTime")
-                .ok_or_else(|| anyhow!("Missing LastReferenceTime"))?;
-            let last_reference_time = DateTime::<Utc>::from_naive_utc_and_offset(last_ref_naive, Utc);
+            let last_reference_time = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>("LastReferenceTime")?
+                .ok_or_else(|| anyhow!("Missing LastReferenceTime"))?
+                .with_timezone(&Utc);
 
-            let first_delivery_start = row.get::<chrono::NaiveDateTime, _>("FirstDeliveryStart")
-                .map(|d| DateTime::<Utc>::from_naive_utc_and_offset(d, Utc));
+            let first_delivery_start = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>("FirstDeliveryStart")?
+                .map(|d| d.with_timezone(&Utc));
 
-            let last_delivery_start = row.get::<chrono::NaiveDateTime, _>("LastDeliveryStart")
-                .map(|d| DateTime::<Utc>::from_naive_utc_and_offset(d, Utc));
+            let last_delivery_start = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>("LastDeliveryStart")?
+                .map(|d| d.with_timezone(&Utc));
 
-            let first_delivery_end = row.get::<chrono::NaiveDateTime, _>("FirstDeliveryEnd")
-                .map(|d| DateTime::<Utc>::from_naive_utc_and_offset(d, Utc));
+            let first_delivery_end = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>("FirstDeliveryEnd")?
+                .map(|d| d.with_timezone(&Utc));
 
-            let last_delivery_end = row.get::<chrono::NaiveDateTime, _>("LastDeliveryEnd")
-                .map(|d| DateTime::<Utc>::from_naive_utc_and_offset(d, Utc));
+            let last_delivery_end = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>("LastDeliveryEnd")?
+                .map(|d| d.with_timezone(&Utc));
 
-            let min_relative_delivery_period = row.get::<i32, _>("MinRelativeDeliveryPeriod");
+            let min_relative_delivery_period = row.try_get::<i32, _>("MinRelativeDeliveryPeriod")?;
 
-            let max_relative_delivery_period = row.get::<i32, _>("MaxRelativeDeliveryPeriod");
+            let max_relative_delivery_period = row.try_get::<i32, _>("MaxRelativeDeliveryPeriod")?;
 
-            let data_row_count = row.get::<i32, _>("DataRowCount")
+            let data_row_count = row.try_get::<i32, _>("DataRowCount")?
                 .unwrap_or(0);
 
             Ok(Some(DbStatistics {
