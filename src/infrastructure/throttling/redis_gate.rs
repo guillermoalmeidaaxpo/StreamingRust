@@ -30,24 +30,40 @@ pub trait Releaser: Send + Sync {
 
 pub struct RedisCmdpGlobalConnectionGate {
     client: RedisClient,
+    enabled: bool,
     limit: usize,
     slot_ttl_seconds: i64,
     max_retry_attempts: usize,
     retry_delay_ms: u64,
+    enable_counter_logging: bool,
 }
 
 impl RedisCmdpGlobalConnectionGate {
-    pub fn new(client: RedisClient, limit: usize, slot_ttl_seconds: i64, max_retry_attempts: usize, retry_delay_ms: u64) -> Self {
+    pub fn new(
+        client: RedisClient,
+        enabled: bool,
+        limit: usize,
+        slot_ttl_seconds: i64,
+        max_retry_attempts: usize,
+        retry_delay_ms: u64,
+        enable_counter_logging: bool,
+    ) -> Self {
         Self {
             client,
+            enabled,
             limit,
             slot_ttl_seconds,
             max_retry_attempts,
             retry_delay_ms,
+            enable_counter_logging,
         }
     }
 
     async fn try_acquire_slot(&self) -> Result<Option<RedisReleaser>> {
+        if !self.enabled {
+            return Ok(Some(RedisReleaser::no_op()));
+        }
+
         let now_ms = Utc::now().timestamp_millis();
         let expiry_ms = now_ms + (self.slot_ttl_seconds * 1000);
         let slot_id = Uuid::new_v4().to_string();
@@ -64,6 +80,12 @@ impl RedisCmdpGlobalConnectionGate {
 
         match result {
             Ok(count) if count > 0 => {
+                if self.enable_counter_logging {
+                    tracing::warn!(
+                        "CMDP global connection gate: slot acquired — activeSlots={}, limit={}, slotId={}.",
+                        count, self.limit, slot_id
+                    );
+                }
                 Ok(Some(RedisReleaser::new(self.client.clone(), slot_id, self.slot_ttl_seconds)))
             }
             Ok(_) => Ok(None), // Limit reached
@@ -79,6 +101,10 @@ impl RedisCmdpGlobalConnectionGate {
 #[async_trait::async_trait]
 impl ConnectionGate for RedisCmdpGlobalConnectionGate {
     async fn acquire(&self) -> Result<Box<dyn Releaser>> {
+        if !self.enabled {
+            return Ok(Box::new(RedisReleaser::no_op()));
+        }
+
         // If Redis is not connected, fail open immediately
         if !self.client.is_connected() {
             tracing::warn!("Redis is not connected; allowing connection through (fail-open).");

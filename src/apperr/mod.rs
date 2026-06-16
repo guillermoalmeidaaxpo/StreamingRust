@@ -22,6 +22,9 @@ pub enum AppError {
 
     #[error("Dependency error: {0}")]
     Unavailable(String),
+
+    #[error("Rate limit exceeded: {0}")]
+    RateLimitExceeded(String),
 }
 
 #[derive(Serialize)]
@@ -41,6 +44,7 @@ impl IntoResponse for AppError {
             AppError::Invalid(_) => (StatusCode::BAD_REQUEST, "Bad Request", "https://httpstatuses.com/400"),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized", "https://httpstatuses.com/401"),
             AppError::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable", "https://httpstatuses.com/503"),
+            AppError::RateLimitExceeded(_) => (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests", "https://httpstatuses.com/429"),
         };
 
         let body = Json(ProblemDetails {

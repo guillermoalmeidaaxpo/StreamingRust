@@ -6,14 +6,16 @@ use anyhow::{Result, anyhow};
 use tiberius::{Query, Row};
 use super::ConnectionManager;
 use bb8::Pool;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::time::{Instant, Duration};
+use crate::infrastructure::throttling::QueryRateLimiter;
 
 pub struct MssqlMappingResolver {
     mapping_pool: Pool<ConnectionManager>,
     mds_pool: Pool<ConnectionManager>,
     cmdp_pool: Pool<ConnectionManager>,
+    rate_limiter: Arc<dyn QueryRateLimiter>,
     limits_cache: Mutex<HashMap<(i64, DataCategory), (Instant, crate::application::quote_index::FilterLimits)>>,
     before_cache: Mutex<HashMap<(i64, i64, String), (Instant, DateTime<Utc>)>>,
 }
@@ -24,6 +26,7 @@ impl MssqlMappingResolver {
         mds_connection_string: &str,
         cmdp_connection_string: &str,
         max_connections: u32,
+        rate_limiter: Arc<dyn QueryRateLimiter>,
     ) -> Result<Self> {
         let mapping_manager = ConnectionManager::new(mapping_connection_string)?;
         let mapping_pool = Pool::builder()
@@ -47,6 +50,7 @@ impl MssqlMappingResolver {
             mapping_pool, 
             mds_pool,
             cmdp_pool,
+            rate_limiter,
             limits_cache: Mutex::new(HashMap::new()),
             before_cache: Mutex::new(HashMap::new()),
         })
@@ -489,6 +493,7 @@ impl MssqlMappingResolver {
             .map(|c| c.source_name.as_str())
             .unwrap_or("");
 
+        self.rate_limiter.throttle().await?;
         let mut client = self.cmdp_pool.get().await?;
         let mut query = Query::new(
             "DECLARE @minRef DATETIMEOFFSET; \
@@ -568,6 +573,7 @@ impl MssqlMappingResolver {
             .map(|c| c.source_name.as_str())
             .unwrap_or("ReferenceTime");
 
+        self.rate_limiter.throttle().await?;
         let mut client = self.cmdp_pool.get().await?;
         let mut query = Query::new(
             "DECLARE @localMaxRef DATETIMEOFFSET; \

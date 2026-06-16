@@ -10,6 +10,40 @@ pub struct AppConfig {
     pub datastores: DatastoresConfig,
     pub database: DatabaseConfig,
     pub execution: ExecutionConfig,
+    #[serde(alias = "CmdpRateLimiter")]
+    pub cmdp_rate_limiter: CmdpRateLimiterConfig,
+    #[serde(alias = "CmdpGlobalConnectionGate")]
+    pub cmdp_global_connection_gate: CmdpGlobalConnectionGateConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CmdpRateLimiterConfig {
+    pub enabled: bool,
+    #[serde(alias = "PermitLimit")]
+    pub permit_limit: usize,
+    #[serde(alias = "WindowSeconds")]
+    pub window_seconds: i64,
+    #[serde(alias = "MaxRetryAttempts")]
+    pub max_retry_attempts: usize,
+    #[serde(alias = "RetryBaseDelayMilliseconds")]
+    pub retry_base_delay_milliseconds: u64,
+    #[serde(alias = "EnableCounterLogging")]
+    pub enable_counter_logging: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CmdpGlobalConnectionGateConfig {
+    pub enabled: bool,
+    #[serde(alias = "MaxConcurrentCMDPConnectionsGlobalOutbound")]
+    pub max_concurrent_cmdp_connections_global_outbound: usize,
+    #[serde(alias = "SlotTtlSeconds")]
+    pub slot_ttl_seconds: i64,
+    #[serde(alias = "MaxRetryAttempts")]
+    pub max_retry_attempts: usize,
+    #[serde(alias = "RetryBaseDelayMilliseconds")]
+    pub retry_base_delay_milliseconds: u64,
+    #[serde(alias = "EnableCounterLogging")]
+    pub enable_counter_logging: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]

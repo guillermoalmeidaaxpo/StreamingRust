@@ -12,7 +12,7 @@ use streaming_rust::infrastructure::http::router::{create_router, AppState};
 use streaming_rust::infrastructure::config::AppConfig;
 use tracing_subscriber::prelude::*;
 
-use streaming_rust::infrastructure::throttling::{RedisCmdpGlobalConnectionGate, NullConnectionGate, ConnectionGate};
+use streaming_rust::infrastructure::throttling::{RedisCmdpGlobalConnectionGate, NullConnectionGate, ConnectionGate, QueryRateLimiter, RedisCmdpQueryRateLimiter, NullQueryRateLimiter};
 use fred::clients::RedisClient;
 use fred::interfaces::ClientLike;
 
@@ -74,8 +74,8 @@ async fn main() {
     let config = AppConfig::load().expect("Failed to load configuration");
     tracing::info!("Configuration loaded successfully: build {}, stage {}", config.meta.build_number, config.meta.stage);
 
-    // Initialize Redis & Connection Gate
-    let gate: Arc<dyn ConnectionGate> = if config.datastores.redis.address.trim() != "NOT SET" && !config.datastores.redis.address.is_empty() {
+    // Initialize Redis, Connection Gate & Rate Limiter
+    let (gate, rate_limiter): (Arc<dyn ConnectionGate>, Arc<dyn QueryRateLimiter>) = if config.datastores.redis.address.trim() != "NOT SET" && !config.datastores.redis.address.is_empty() {
         let redis_config = fred::types::RedisConfig::from_url(&config.datastores.redis.address).expect("Invalid Redis URL");
         let redis_client = RedisClient::new(redis_config, None, None, None);
         redis_client.connect();
@@ -83,16 +83,30 @@ async fn main() {
         // Wait for connection or fail open gracefully in background
         let _ = redis_client.wait_for_connect().await;
         
-        Arc::new(RedisCmdpGlobalConnectionGate::new(
+        let g = Arc::new(RedisCmdpGlobalConnectionGate::new(
+            redis_client.clone(),
+            config.cmdp_global_connection_gate.enabled,
+            config.cmdp_global_connection_gate.max_concurrent_cmdp_connections_global_outbound,
+            config.cmdp_global_connection_gate.slot_ttl_seconds,
+            config.cmdp_global_connection_gate.max_retry_attempts,
+            config.cmdp_global_connection_gate.retry_base_delay_milliseconds,
+            config.cmdp_global_connection_gate.enable_counter_logging,
+        ));
+
+        let r = Arc::new(RedisCmdpQueryRateLimiter::new(
             redis_client,
-            config.execution.max_sql_parallel, // Global limit
-            300, // 5 minutes TTL
-            10, // Max retries
-            500, // Retry base delay MS
-        ))
+            config.cmdp_rate_limiter.enabled,
+            config.cmdp_rate_limiter.permit_limit,
+            config.cmdp_rate_limiter.window_seconds,
+            config.cmdp_rate_limiter.max_retry_attempts,
+            config.cmdp_rate_limiter.retry_base_delay_milliseconds,
+            config.cmdp_rate_limiter.enable_counter_logging,
+        ));
+        
+        (g, r)
     } else {
-        tracing::warn!("Redis address NOT SET. Global connection gating is DISABLED.");
-        Arc::new(NullConnectionGate)
+        tracing::warn!("Redis address NOT SET. Global connection gating and distributed rate limiting are DISABLED.");
+        (Arc::new(NullConnectionGate), Arc::new(NullQueryRateLimiter))
     };
 
     // 1. Initialize Adapters
@@ -102,18 +116,21 @@ async fn main() {
         &config.datastores.mds_sql.dsn,
         &config.datastores.cmdp_sql.dsn,
         config.execution.max_sql_connections,
+        rate_limiter.clone(),
     ).await.expect("Failed to initialize mapping resolver"));
     
     let cmdp_repo = Arc::new(MssqlRepository::new(
         &config.datastores.cmdp_sql.dsn,
         config.execution.max_sql_connections,
         gate.clone(),
+        rate_limiter.clone(),
     ).await.expect("Failed to initialize CMDP repository"));
 
     let mds_repo = Arc::new(MssqlRepository::new(
         &config.datastores.mds_sql.dsn,
         config.execution.max_sql_connections,
         gate,
+        Arc::new(NullQueryRateLimiter),
     ).await.expect("Failed to initialize MDS repository"));
     
     let mut cassandra_hosts: Vec<String> = config.datastores.cassandra.data_centers.values()

@@ -47,6 +47,20 @@ fn resolve_context(uri: &Uri, default_stage: &str) -> crate::application::ports:
     }
 }
 
+fn map_pipeline_error(err: anyhow::Error) -> crate::apperr::AppError {
+    let err_str = err.to_string();
+    let lower = err_str.to_lowercase();
+    if lower.contains("rate limit") {
+        crate::apperr::AppError::RateLimitExceeded(err_str)
+    } else if lower.contains("connection limit") || lower.contains("global cmdp connection limit") || lower.contains("gate") {
+        crate::apperr::AppError::RateLimitExceeded(err_str)
+    } else if lower.contains("validation") || lower.contains("invalid") || lower.contains("unsupported") || lower.contains("cannot be used") {
+        crate::apperr::AppError::Invalid(err_str)
+    } else {
+        crate::apperr::AppError::Internal(err_str)
+    }
+}
+
 struct BufferedItem {
     id: crate::domain::Identifier,
     fields: std::collections::HashMap<String, Vec<serde_json::Value>>,
@@ -165,7 +179,7 @@ pub async fn transactional(
         }
         Err(err) => {
             tracing::error!("Error in transactional endpoint ({}): {:?}", path, err);
-            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+            map_pipeline_error(err).into_response()
         }
     };
     tracing::info!("Finished request - Endpoint: POST {}, Duration: {:?}", path, start_time.elapsed());
@@ -285,7 +299,7 @@ pub async fn transactional_stream(
         }
         Err(err) => {
             tracing::error!("Error in transactional_stream endpoint ({}): {:?}", path, err);
-            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+            map_pipeline_error(err).into_response()
         }
     }
 }
@@ -341,7 +355,7 @@ pub async fn generic_csv(
         }
         Err(err) => {
             tracing::error!("Error in generic_csv endpoint ({}): {:?}", path, err);
-            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+            map_pipeline_error(err).into_response()
         }
     };
     tracing::info!("Finished request - Endpoint: POST {}, Duration: {:?}", path, start_time.elapsed());
@@ -425,7 +439,7 @@ pub async fn generic_csv_stream(
         }
         Err(err) => {
             tracing::error!("Error in generic_csv_stream endpoint ({}): {:?}", path, err);
-            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+            map_pipeline_error(err).into_response()
         }
     }
 }

@@ -83,3 +83,20 @@ execution:
   max_cassandra_connections: 20
   reference_time_split_days: 10
   cassandra_reference_time_split_days: 5
+
+cmdp_rate_limiter:
+  enabled: true
+  permit_limit: 35
+  window_seconds: 1
+  max_retry_attempts: 10
+  retry_base_delay_milliseconds: 100
+  enable_counter_logging: false
+
+cmdp_global_connection_gate:
+  enabled: true
+  max_concurrent_cmdp_connections_global_outbound: 70
+  slot_ttl_seconds: 130
+  max_retry_attempts: 10
+  retry_base_delay_milliseconds: 500
+  enable_counter_logging: false
+

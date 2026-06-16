@@ -10,7 +10,7 @@ use async_stream::try_stream;
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::infrastructure::throttling::ConnectionGate;
+use crate::infrastructure::throttling::{ConnectionGate, QueryRateLimiter};
 use regex::Regex;
 use chrono::TimeZone;
 use chrono_tz::Tz;
@@ -18,17 +18,23 @@ use chrono_tz::Tz;
 pub struct MssqlRepository {
     pool: Pool<ConnectionManager>,
     gate: Arc<dyn ConnectionGate>,
+    rate_limiter: Arc<dyn QueryRateLimiter>,
 }
 
 impl MssqlRepository {
-    pub async fn new(connection_string: &str, max_connections: u32, gate: Arc<dyn ConnectionGate>) -> Result<Self> {
+    pub async fn new(
+        connection_string: &str,
+        max_connections: u32,
+        gate: Arc<dyn ConnectionGate>,
+        rate_limiter: Arc<dyn QueryRateLimiter>,
+    ) -> Result<Self> {
         let manager = ConnectionManager::new(connection_string)?;
         let pool = Pool::builder()
             .max_size(max_connections)
             .build(manager)
             .await?;
 
-        Ok(Self { pool, gate })
+        Ok(Self { pool, gate, rate_limiter })
     }
 }
 
@@ -37,6 +43,9 @@ impl Repository for MssqlRepository {
     async fn execute(&self, query: ExecutableQuery) -> Result<Vec<DataItem>> {
         let (statement_prepared, args) = prepare_query(&query.statement, &query.parameters);
         tracing::info!("Executing MSSQL query for ID: {}. Statement: {} with parameters: {:?}", query.id, statement_prepared, args);
+
+        // 0. Distributed Rate Limit check
+        self.rate_limiter.throttle().await?;
 
         // 1. Acquire global connection slot
         let mut releaser = self.gate.acquire().await?;
@@ -106,6 +115,9 @@ impl Repository for MssqlRepository {
         let id = query.id;
         let (statement_prepared, args) = prepare_query(&query.statement, &query.parameters);
         tracing::info!("Streaming MSSQL query for ID: {}. Statement: {} with parameters: {:?}", id, statement_prepared, args);
+
+        // 0. Distributed Rate Limit check
+        self.rate_limiter.throttle().await?;
 
         // 1. Acquire global connection slot
         let mut releaser = self.gate.acquire().await?;
@@ -273,9 +285,7 @@ fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serd
             tiberius::ColumnType::Datetime | tiberius::ColumnType::Datetime2 | tiberius::ColumnType::Datetime4 | tiberius::ColumnType::Datetimen => {
                 if let Some(dt) = row.try_get::<chrono::NaiveDateTime, _>(i).ok().flatten() {
                     let tz: Tz = timezone.parse().unwrap_or(chrono_tz::Europe::Zurich);
-                    let dt_with_tz = tz.from_local_datetime(&dt).earliest().unwrap_or_else(|| {
-                        chrono::Utc.from_local_datetime(&dt).unwrap().with_timezone(&tz)
-                    });
+                    let dt_with_tz = chrono::Utc.from_utc_datetime(&dt).with_timezone(&tz);
                     serde_json::Value::String(dt_with_tz.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
                 } else {
                     serde_json::Value::Null
