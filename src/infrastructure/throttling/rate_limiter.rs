@@ -1,7 +1,7 @@
 use std::time::Duration;
 use anyhow::{Result, anyhow};
 use fred::clients::RedisClient;
-use fred::interfaces::{ClientLike, LuaInterface};
+use fred::interfaces::{ClientLike, LuaInterface, KeysInterface};
 use chrono::Utc;
 
 const INCR_WITH_TTL_SCRIPT: &str = r#"
