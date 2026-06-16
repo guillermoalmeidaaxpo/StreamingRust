@@ -122,7 +122,9 @@ fn map_scylla_row(
         qte_y as i32,
         qte_m as u32,
         qte_d as u32,
-    ).unwrap().and_hms_opt(0, 0, 0).unwrap();
+    ).ok_or_else(|| anyhow::anyhow!("Invalid quote date: {}-{}-{}", qte_y, qte_m, qte_d))?
+    .and_hms_opt(0, 0, 0)
+    .ok_or_else(|| anyhow::anyhow!("Invalid quote time"))?;
 
     let ref_time = tz.from_local_datetime(&ref_naive).earliest().unwrap_or_else(|| {
         chrono::Utc.from_local_datetime(&ref_naive).unwrap().with_timezone(&tz)
@@ -136,11 +138,12 @@ fn map_scylla_row(
         del_y as i32,
         del_m as u32,
         del_d as u32,
-    ).unwrap().and_hms_opt(
+    ).ok_or_else(|| anyhow::anyhow!("Invalid delivery start date: {}-{}-{}", del_y, del_m, del_d))?
+    .and_hms_opt(
         del_h as u32,
         del_min as u32,
         0,
-    ).unwrap();
+    ).ok_or_else(|| anyhow::anyhow!("Invalid delivery start time: {}:{}", del_h, del_min))?;
     
     let del_start = chrono::DateTime::<chrono::FixedOffset>::from_naive_utc_and_offset(del_start_naive - chrono::Duration::seconds(offset_secs as i64), offset);
     
@@ -162,7 +165,9 @@ fn map_scylla_row(
     let value_json = if value_rounded.fract() == 0.0 {
         serde_json::Value::Number((value_rounded as i64).into())
     } else {
-        serde_json::Value::Number(serde_json::Number::from_f64(value_rounded).unwrap())
+        serde_json::Number::from_f64(value_rounded)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null)
     };
 
     let mut fields = HashMap::new();
