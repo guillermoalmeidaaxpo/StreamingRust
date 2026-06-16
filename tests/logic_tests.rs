@@ -333,6 +333,7 @@ async fn test_planner_hybrid_routing() {
     let ctx = RequestContext {
         stage: "development".to_string(),
         is_mesap_endpoint: false,
+        is_generic_endpoint: false,
         data_category: DataCategory::Curves,
     };
 

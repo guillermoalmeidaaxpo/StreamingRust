@@ -21,15 +21,21 @@ impl TransformationProcessor {
     }
 
     fn process_item(&self, item: &mut DataItem, command: &Command, target_tz: Option<Tz>) {
-        // 1. Timezone conversion
-        if let Some(tz) = target_tz {
-            for val in item.fields.values_mut() {
-                if let Some(s) = val.as_str() {
-                    if let Some(dt) = parse_datetime(s) {
-                        let local_dt = dt.with_timezone(&tz);
-                        let formatted = local_dt.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string();
-                        *val = serde_json::Value::String(formatted);
-                    }
+        // 1. Timezone conversion & offset inclusion formatting
+        for val in item.fields.values_mut() {
+            if let Some(s) = val.as_str() {
+                if let Some(dt) = parse_datetime(s) {
+                    let local_dt = if let Some(tz) = target_tz {
+                        dt.with_timezone(&tz)
+                    } else {
+                        dt
+                    };
+                    let formatted = if command.include_offset {
+                        local_dt.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string()
+                    } else {
+                        local_dt.format("%Y-%m-%dT%H:%M:%S.000").to_string()
+                    };
+                    *val = serde_json::Value::String(formatted);
                 }
             }
         }

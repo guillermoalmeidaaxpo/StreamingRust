@@ -58,6 +58,12 @@ impl CMDPQueryBuilder {
 
         let mut builder = SqlBuilder::new(mapping.clone());
         builder.add_parameter("id", serde_json::Value::Number(mapping.id.into()));
+        let timezone = if mapping.timezone.is_empty() {
+            "Europe/Zurich".to_string()
+        } else {
+            mapping.timezone.clone()
+        };
+        builder.add_parameter("timezone", serde_json::Value::String(timezone));
 
         let mut where_clauses = vec![format!("{} = @id", qualify(CMDP_IDENTIFIER_COLUMN))];
         
@@ -313,6 +319,12 @@ impl HyperscaleQueryBuilder {
         let value_column = hyperscale_value_column(mapping.data_category)?;
 
         let mut builder = SqlBuilder::new_with_json_column(mapping.clone(), value_column.clone());
+        let timezone = if mapping.timezone.is_empty() {
+            "Europe/Zurich".to_string()
+        } else {
+            mapping.timezone.clone()
+        };
+        builder.add_parameter("timezone", serde_json::Value::String(timezone));
 
         let mut from = quote_table(&view_name);
         let mut where_clauses = Vec::new();

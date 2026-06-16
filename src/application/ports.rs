@@ -49,6 +49,7 @@ pub trait RequestValidationStrategy: Send + Sync {
 pub struct RequestContext {
     pub stage: String,
     pub is_mesap_endpoint: bool,
+    pub is_generic_endpoint: bool,
     pub data_category: DataCategory,
 }
 

@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use crate::infrastructure::throttling::ConnectionGate;
 use regex::Regex;
+use chrono::TimeZone;
+use chrono_tz::Tz;
 
 pub struct MssqlRepository {
     pool: Pool<ConnectionManager>,
@@ -79,12 +81,13 @@ impl Repository for MssqlRepository {
             }
         }
 
+        let timezone_str = query.parameters.get("timezone").and_then(|v| v.as_str()).unwrap_or("Europe/Zurich");
         let mut stream = tib_query.query(&mut conn).await?;
         let mut items = Vec::new();
         while let Some(item_res) = stream.next().await {
             let item = item_res?;
             if let tiberius::QueryItem::Row(row) = item {
-                let fields = map_tiberius_row(&row);
+                let fields = map_tiberius_row(&row, timezone_str);
                 items.push(DataItem {
                     id: query.id,
                     fields,
@@ -106,6 +109,8 @@ impl Repository for MssqlRepository {
 
         // 1. Acquire global connection slot
         let mut releaser = self.gate.acquire().await?;
+
+        let timezone_str = query.parameters.get("timezone").and_then(|v| v.as_str()).unwrap_or("Europe/Zurich").to_string();
 
         let stream = try_stream! {
             let mut conn = pool.get().await?;
@@ -153,7 +158,7 @@ impl Repository for MssqlRepository {
             while let Some(item_res) = stream.next().await {
                 let item = item_res?;
                 if let tiberius::QueryItem::Row(row) = item {
-                    let fields = map_tiberius_row(&row);
+                    let fields = map_tiberius_row(&row, &timezone_str);
                     yield DataItem {
                         id,
                         fields,
@@ -195,7 +200,7 @@ fn prepare_query(statement: &str, params: &HashMap<String, serde_json::Value>) -
     (new_statement, args)
 }
 
-fn map_tiberius_row(row: &tiberius::Row) -> HashMap<String, serde_json::Value> {
+fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serde_json::Value> {
     let mut fields = HashMap::new();
     for (i, col) in row.columns().iter().enumerate() {
         let name = col.name().to_string();
@@ -256,9 +261,11 @@ fn map_tiberius_row(row: &tiberius::Row) -> HashMap<String, serde_json::Value> {
             }
             tiberius::ColumnType::Datetime | tiberius::ColumnType::Datetime2 | tiberius::ColumnType::Datetime4 | tiberius::ColumnType::Datetimen => {
                 if let Some(dt) = row.try_get::<chrono::NaiveDateTime, _>(i).ok().flatten() {
-                    let offset = chrono::FixedOffset::east_opt(0).unwrap();
-                    let dt_with_offset = chrono::DateTime::<chrono::FixedOffset>::from_naive_utc_and_offset(dt, offset);
-                    serde_json::Value::String(dt_with_offset.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
+                    let tz: Tz = timezone.parse().unwrap_or(chrono_tz::Europe::Zurich);
+                    let dt_with_tz = tz.from_local_datetime(&dt).earliest().unwrap_or_else(|| {
+                        chrono::Utc.from_local_datetime(&dt).unwrap().with_timezone(&tz)
+                    });
+                    serde_json::Value::String(dt_with_tz.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
                 } else {
                     serde_json::Value::Null
                 }

@@ -37,10 +37,12 @@ fn resolve_context(uri: &Uri, default_stage: &str) -> crate::application::ports:
     };
 
     let is_mesap_endpoint = path.contains("/mesap") || path.contains("mesaptransition");
+    let is_generic_endpoint = path.contains("/generic");
 
     crate::application::ports::RequestContext {
         stage,
         is_mesap_endpoint,
+        is_generic_endpoint,
         data_category,
     }
 }

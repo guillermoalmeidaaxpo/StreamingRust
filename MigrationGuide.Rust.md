@@ -136,6 +136,11 @@ Request payloads from legacy clients often contain mixed casing (camelCase, Pasc
 - **Physical Key Columns Preservation**: Aligned `wrap_column_for_hyperscale` with C# behavior to keep key columns like `ReferenceTime`, `DeliveryStart`, and `DeliveryEnd` as physical columns (passing `None` for the json column) while correctly casting properties inside the JSON data block.
 - **Dynamic Tiberius Casing & Type Safety**: Updated `map_tiberius_row` to support correct Tiberius 0.12 `ColumnType` casing (e.g., `DatetimeOffsetn`, `Numericn`, `Decimaln`, `NVarchar`, `Datetime`) and implemented safe `try_get` fallback retrieval for variable-length integers/floats (`Intn`, `Floatn`). This allows dynamic generation of headers and values for CSV and JSON outputs.
 
+### 6.10 Datetime & Timezone Transformation Parity
+- **Endpoint-Aware Offset Settings**: Aligned `include_offset` resolution with C#. For JSON endpoints (`curves`, `timeseries`, and `surfaces`), `include_offset` is always forced to `true`. For the `generic` CSV/NDJSON endpoint, `include_offset` is resolved dynamically from `Transformations.Offset` (defaulting to `false`).
+- **Cassandra & SQL Datetime Localization**: Refactored the row mappers in both Cassandra and MSSQL repositories to read mapping / machine local timezones (defaulting to `"Europe/Zurich"`) and explicitly format naive database datetimes (which represent local times) with the correct timezone offset (e.g. `+02:00` or `+01:00` depending on DST) instead of defaulting to `UTC` (`+00:00`).
+- **Post-Fetch Timezone Translation**: Updated the `TransformationProcessor` in [transform.rs](file:///C:/Projects/StreamingRust/src/application/transform.rs) to handle datetime conversions dynamically based on the command's target timezone, formatting all timestamp values (including `ReferenceTime`, `DeliveryStart`, and `DeliveryEnd`) with or without offset to match JSON vs CSV expectations.
+
 ---
 
 ## 7. Project Tooling

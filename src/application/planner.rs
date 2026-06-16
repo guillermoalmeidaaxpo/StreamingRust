@@ -123,6 +123,12 @@ impl Planner for DefaultPlanner {
                     .and_then(|f| f.shape.as_ref())
                     .map(|s| s.normalize());
 
+                let include_offset = if ctx.is_generic_endpoint {
+                    request.transformations.as_ref().and_then(|t| t.offset).unwrap_or(false)
+                } else {
+                    true
+                };
+
                 let mut command = Command {
                     ids: vec![mapping.id],
                     data_category: ctx.data_category,
@@ -130,7 +136,7 @@ impl Planner for DefaultPlanner {
                     version_as_of: request.version_as_of,
                     include_deleted: request.include_deleted.unwrap_or(false),
                     include_identifier: true,
-                    include_offset: request.transformations.as_ref().and_then(|t| t.offset).unwrap_or(false),
+                    include_offset,
                     filter_time_zone: request.filters.as_ref().and_then(|f| f.filter_time_zone.clone()).unwrap_or_default(),
                     target_time_zone: request.transformations.as_ref().and_then(|t| t.target_time_zone.clone()).unwrap_or_default(),
                     has_aggregations,
