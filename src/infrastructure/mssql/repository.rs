@@ -256,14 +256,16 @@ fn map_tiberius_row(row: &tiberius::Row) -> HashMap<String, serde_json::Value> {
             }
             tiberius::ColumnType::Datetime | tiberius::ColumnType::Datetime2 | tiberius::ColumnType::Datetime4 | tiberius::ColumnType::Datetimen => {
                 if let Some(dt) = row.try_get::<chrono::NaiveDateTime, _>(i).ok().flatten() {
-                    serde_json::Value::String(dt.format("%Y-%m-%dT%H:%M:%S.000").to_string())
+                    let offset = chrono::FixedOffset::east_opt(0).unwrap();
+                    let dt_with_offset = chrono::DateTime::<chrono::FixedOffset>::from_naive_utc_and_offset(dt, offset);
+                    serde_json::Value::String(dt_with_offset.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
                 } else {
                     serde_json::Value::Null
                 }
             }
             tiberius::ColumnType::DatetimeOffsetn => {
                 if let Some(dt) = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>(i).ok().flatten() {
-                    serde_json::Value::String(dt.to_rfc3339())
+                    serde_json::Value::String(dt.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
                 } else {
                     serde_json::Value::Null
                 }
