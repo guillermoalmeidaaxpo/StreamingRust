@@ -159,13 +159,18 @@ fn map_scylla_row(
     };
 
     let value_rounded = (value * 1e10).round() / 1e10;
+    let value_json = if value_rounded.fract() == 0.0 {
+        serde_json::Value::Number((value_rounded as i64).into())
+    } else {
+        serde_json::Value::Number(serde_json::Number::from_f64(value_rounded).unwrap())
+    };
 
     let mut fields = HashMap::new();
     fields.insert("Identifier".to_string(), serde_json::Value::Number(id.into()));
     fields.insert("ReferenceTime".to_string(), serde_json::Value::String(ref_time_str));
     fields.insert("DeliveryStart".to_string(), serde_json::Value::String(del_start_str));
     fields.insert("DeliveryEnd".to_string(), serde_json::Value::String(del_end_str));
-    fields.insert("Value".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(value_rounded).unwrap()));
+    fields.insert("Value".to_string(), value_json);
     fields.insert("LegacyDeliveryBucketNumber".to_string(), serde_json::Value::Null);
     fields.insert("RelativeDeliveryPeriod".to_string(), serde_json::Value::Null);
 

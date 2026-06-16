@@ -200,6 +200,17 @@ fn prepare_query(statement: &str, params: &HashMap<String, serde_json::Value>) -
     (new_statement, args)
 }
 
+fn f64_to_json_value(val: f64) -> serde_json::Value {
+    let val_rounded = (val * 1e10).round() / 1e10;
+    if val_rounded.fract() == 0.0 {
+        serde_json::Value::Number((val_rounded as i64).into())
+    } else {
+        serde_json::Number::from_f64(val_rounded)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null)
+    }
+}
+
 fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serde_json::Value> {
     let mut fields = HashMap::new();
     for (i, col) in row.columns().iter().enumerate() {
@@ -234,16 +245,16 @@ fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serd
                 }
             }
             tiberius::ColumnType::Float4 => {
-                row.try_get::<f32, _>(i).ok().flatten().and_then(|f| serde_json::Number::from_f64(f as f64)).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                row.try_get::<f32, _>(i).ok().flatten().map(|f| f64_to_json_value(f as f64)).unwrap_or(serde_json::Value::Null)
             }
             tiberius::ColumnType::Float8 => {
-                row.try_get::<f64, _>(i).ok().flatten().and_then(|f| serde_json::Number::from_f64(f)).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                row.try_get::<f64, _>(i).ok().flatten().map(|f| f64_to_json_value(f)).unwrap_or(serde_json::Value::Null)
             }
             tiberius::ColumnType::Floatn => {
                 if let Ok(Some(f)) = row.try_get::<f64, _>(i) {
-                    serde_json::Number::from_f64(f).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                    f64_to_json_value(f)
                 } else if let Ok(Some(f)) = row.try_get::<f32, _>(i) {
-                    serde_json::Number::from_f64(f as f64).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                    f64_to_json_value(f as f64)
                 } else {
                     serde_json::Value::Null
                 }
@@ -251,7 +262,7 @@ fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serd
             tiberius::ColumnType::Numericn | tiberius::ColumnType::Decimaln => {
                 if let Some(num) = row.try_get::<tiberius::numeric::Numeric, _>(i).ok().flatten() {
                     let val = num.value() as f64 / 10.0f64.powi(num.scale() as i32);
-                    serde_json::Number::from_f64(val).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                    f64_to_json_value(val)
                 } else {
                     serde_json::Value::Null
                 }
@@ -284,7 +295,7 @@ fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serd
                 if let Some(s) = row.try_get::<&str, _>(i).ok().flatten() {
                     serde_json::Value::String(s.to_string())
                 } else if let Some(f) = row.try_get::<f64, _>(i).ok().flatten() {
-                    serde_json::Number::from_f64(f).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
+                    f64_to_json_value(f)
                 } else if let Some(n) = row.try_get::<i64, _>(i).ok().flatten() {
                     serde_json::Value::Number(n.into())
                 } else {
