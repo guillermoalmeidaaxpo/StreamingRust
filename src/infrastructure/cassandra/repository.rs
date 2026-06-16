@@ -116,7 +116,7 @@ fn map_scylla_row(
     )>().map_err(|e| anyhow::anyhow!("Failed to decode Scylla row: {:?}", e))?;
 
     let timezone_str = query.parameters.get("timezone").and_then(|v| v.as_str()).unwrap_or("Europe/Zurich");
-    let tz: chrono_tz::Tz = timezone_str.parse().unwrap_or(chrono_tz::Tz::UTC);
+    let tz: chrono_tz::Tz = crate::domain::source::parse_timezone(timezone_str).unwrap_or(chrono_tz::Tz::UTC);
 
     let ref_naive = chrono::NaiveDate::from_ymd_opt(
         qte_y as i32,

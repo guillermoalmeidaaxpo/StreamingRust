@@ -13,7 +13,7 @@ impl TransformationProcessor {
     }
 
     pub fn process(&self, items: &mut [DataItem], command: &Command) {
-        let target_tz: Option<Tz> = command.target_time_zone.parse().ok();
+        let target_tz = crate::domain::source::parse_timezone(&command.target_time_zone);
 
         for item in items.iter_mut() {
             self.process_item(item, command, target_tz);
@@ -26,7 +26,7 @@ impl TransformationProcessor {
             if let Some(s) = val.as_str() {
                 if let Some(dt) = parse_datetime(s) {
                     let local_dt = if let Some(tz) = target_tz {
-                        dt.with_timezone(&tz).fixed_offset()
+                        (dt + chrono::Duration::milliseconds(1)).with_timezone(&tz).fixed_offset()
                     } else {
                         dt
                     };

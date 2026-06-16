@@ -137,14 +137,14 @@ impl QuoteIndexGenerator {
     }
 
     fn get_local_dt_and_midnight(utc_dt: DateTime<Utc>, tz_id: &str) -> (DateTime<Tz>, bool) {
-        let tz: Tz = tz_id.parse().unwrap_or(chrono_tz::UTC);
+        let tz: Tz = crate::domain::source::parse_timezone(tz_id).unwrap_or(chrono_tz::UTC);
         let local = utc_dt.with_timezone(&tz);
         let is_midnight = local.hour() == 0 && local.minute() == 0 && local.second() == 0;
         (local, is_midnight)
     }
 
     fn truncate_to_date(local_dt: DateTime<Tz>, tz_id: &str) -> DateTime<Utc> {
-        let tz: Tz = tz_id.parse().unwrap_or(chrono_tz::UTC);
+        let tz: Tz = crate::domain::source::parse_timezone(tz_id).unwrap_or(chrono_tz::UTC);
         tz.with_ymd_and_hms(local_dt.year(), local_dt.month(), local_dt.day(), 0, 0, 0)
             .single()
             .expect("Valid local date")
@@ -208,7 +208,7 @@ impl QuoteIndexGenerator {
     }
 
     fn format_date_as_index(dt: DateTime<Utc>, tz_id: &str) -> i32 {
-        let tz: Tz = tz_id.parse().unwrap_or(chrono_tz::UTC);
+        let tz: Tz = crate::domain::source::parse_timezone(tz_id).unwrap_or(chrono_tz::UTC);
         let local_dt = dt.with_timezone(&tz);
         local_dt.year() * 10000 + (local_dt.month() as i32) * 100 + local_dt.day() as i32
     }

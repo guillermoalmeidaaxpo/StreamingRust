@@ -284,8 +284,8 @@ fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serd
             }
             tiberius::ColumnType::Datetime | tiberius::ColumnType::Datetime2 | tiberius::ColumnType::Datetime4 | tiberius::ColumnType::Datetimen => {
                 if let Some(dt) = row.try_get::<chrono::NaiveDateTime, _>(i).ok().flatten() {
-                    let tz: Tz = timezone.parse().unwrap_or(chrono_tz::Europe::Zurich);
-                    let dt_with_tz = chrono::Utc.from_utc_datetime(&dt).with_timezone(&tz);
+                    let tz = crate::domain::source::parse_timezone(timezone).unwrap_or(chrono_tz::Europe::Zurich);
+                    let dt_with_tz = (chrono::Utc.from_utc_datetime(&dt) + chrono::Duration::milliseconds(1)).with_timezone(&tz);
                     serde_json::Value::String(dt_with_tz.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
                 } else {
                     serde_json::Value::Null
@@ -293,8 +293,8 @@ fn map_tiberius_row(row: &tiberius::Row, timezone: &str) -> HashMap<String, serd
             }
             tiberius::ColumnType::DatetimeOffsetn => {
                 if let Some(dt) = row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>(i).ok().flatten() {
-                    let tz: Tz = timezone.parse().unwrap_or(chrono_tz::Europe::Zurich);
-                    let dt_with_tz = dt.with_timezone(&tz);
+                    let tz = crate::domain::source::parse_timezone(timezone).unwrap_or(chrono_tz::Europe::Zurich);
+                    let dt_with_tz = (dt + chrono::Duration::milliseconds(1)).with_timezone(&tz);
                     serde_json::Value::String(dt_with_tz.format("%Y-%m-%dT%H:%M:%S.000%:z").to_string())
                 } else {
                     serde_json::Value::Null

@@ -138,7 +138,28 @@ impl Planner for DefaultPlanner {
                     include_identifier: true,
                     include_offset,
                     filter_time_zone: request.filters.as_ref().and_then(|f| f.filter_time_zone.clone()).unwrap_or_default(),
-                    target_time_zone: request.transformations.as_ref().and_then(|t| t.target_time_zone.clone()).unwrap_or_default(),
+                    target_time_zone: {
+                        let mut tz = request.transformations.as_ref()
+                            .and_then(|t| t.target_time_zone.clone())
+                            .unwrap_or_default();
+                        if tz.is_empty() {
+                            tz = request.transformations.as_ref()
+                                .and_then(|t| t.timezone.clone())
+                                .unwrap_or_default();
+                        }
+                        if tz.is_empty() {
+                            tz = request.filters.as_ref()
+                                .and_then(|f| f.filter_time_zone.clone())
+                                .unwrap_or_default();
+                        }
+                        if tz.is_empty() {
+                            tz = mapping.timezone.clone();
+                        }
+                        if tz.is_empty() {
+                            tz = "Europe/Zurich".to_string();
+                        }
+                        tz
+                    },
                     has_aggregations,
                     aggregations,
                     has_shape,
